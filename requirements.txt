@@ -1,0 +1,11 @@
+# Core JAX/Flax dependencies
+jax>=0.4.0
+jaxlib>=0.4.0
+flax>=0.8.0
+optax>=0.1.0
+
+# Numerical and data handling
+numpy>=1.20.0
+
+# Visualization (optional but recommended)
+matplotlib>=3.5.0
