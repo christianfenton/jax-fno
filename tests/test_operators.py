@@ -14,15 +14,15 @@ class TestFourierLayer1D:
         # Parameters
         batch_size = 4
         n_points = 64
-        d_v = 16
-        k_max = 12
+        channels = 16
+        n_modes = 12
         
         # Create layer
-        rngs = nnx.Rngs(42)
-        layer = FourierLayer1D(d_v=d_v, k_max=k_max,  rngs=rngs)
+        key = jax.random.key(42)
+        layer = FourierLayer1D(key=key, channels_in=channels, channels_out=channels, n_modes=n_modes)
         
-        # Create test input
-        x = jax.random.normal(jax.random.key(123), (batch_size, n_points, d_v))
+        # Create test input (batch, channels, spatial)
+        x = jax.random.normal(jax.random.key(123), (batch_size, channels, n_points))
         
         # Forward pass
         output = layer(x)
@@ -38,14 +38,14 @@ class TestFourierLayer1D:
 
         batch_size = 3
         n_points = 32
-        d_v = 4
-        k_max = 8
+        channels = 4
+        n_modes = 8
         
-        rngs = nnx.Rngs(42)
-        layer = FourierLayer1D(d_v=d_v, k_max=k_max, rngs=rngs)
+        key = jax.random.key(42)
+        layer = FourierLayer1D(key=key, channels_in=channels, channels_out=channels, n_modes=n_modes)
         
-        # Create input
-        x = jax.random.normal(jax.random.key(789), (batch_size, n_points, d_v))
+        # Create input (batch, channels, spatial)
+        x = jax.random.normal(jax.random.key(789), (batch_size, channels, n_points))
         
         # Define a simple loss function
         def loss_fn(model, x):
@@ -56,33 +56,34 @@ class TestFourierLayer1D:
         loss, grads = nnx.value_and_grad(loss_fn)(layer, x)
         
         # Check that gradients exist and are non-zero for all parameters
-        grad_R = grads['R']
+        grad_spectral = grads['spectral']
         grad_linear = grads['linear']
-        assert jnp.linalg.norm(grad_R.value) > 1e-8, "R gradients are too small"
-        assert jnp.linalg.norm(grad_linear['kernel'].value) > 1e-8, "Linear gradients are too small"
+        assert jnp.linalg.norm(grad_spectral['weights'].value) > 1e-8, "Spectral gradients are too small"
+        assert jnp.linalg.norm(grad_linear['weight'].value) > 1e-8, "Linear gradients are too small"
 
 
     def test_different_configurations(self):
         """Test layer with different configurations."""
 
         configurations = [
-            {"d_v": 4, "k_max": 2, "n_points": 16},
-            {"d_v": 32, "k_max": 20, "n_points": 128},
-            {"d_v": 1, "k_max": 5, "n_points": 64},  # Single channel
+            {"channels": 4, "n_modes": 2, "n_points": 16},
+            {"channels": 32, "n_modes": 20, "n_points": 128},
+            {"channels": 1, "n_modes": 5, "n_points": 64},  # Single channel
         ]
         
         for i, config in enumerate(configurations):
             
-            rngs = nnx.Rngs(42 + i)
+            key = jax.random.key(42 + i)
             layer = FourierLayer1D(
-                d_v=config['d_v'], 
-                k_max=config['k_max'], 
-                rngs=rngs
+                key=key,
+                channels_in=config['channels'], 
+                channels_out=config['channels'],
+                n_modes=config['n_modes']
             )
             
             x = jax.random.normal(
                 jax.random.key(100 + i), 
-                (2, config['n_points'], config['d_v'])
+                (2, config['channels'], config['n_points'])
             )
             
             output = layer(x)
@@ -102,28 +103,28 @@ class TestFNO1D:
         input_dim = 2
         output_dim = 1
         width = 32
-        modes = 8
+        n_modes = 8
         n_layers = 2  # Small for testing
         
         # Create model
-        rngs = nnx.Rngs(42)
+        key = jax.random.key(42)
         model = FNO1D(
+            key=key,
             input_dim=input_dim,
             output_dim=output_dim,
             width=width,
-            n_modes=modes,
-            n_layers=n_layers,
-            rngs=rngs
+            n_modes=n_modes,
+            n_layers=n_layers
         )
         
-        # Create test input
-        x = jax.random.normal(jax.random.key(123), (batch_size, n_points, input_dim))
+        # Create test input (batch, input_dim, spatial)
+        x = jax.random.normal(jax.random.key(123), (batch_size, input_dim, n_points))
         
         # Forward pass
         output = model(x)
 
         # Check shape
-        expected_shape = (batch_size, n_points, output_dim)
+        expected_shape = (batch_size, output_dim, n_points)
         assert output.shape == expected_shape, f"Shape mismatch: {output.shape} != {expected_shape}"
 
         # Check values are finite
