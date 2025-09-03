@@ -5,7 +5,8 @@ JIT-compiled JAX solvers for generating training data
 and providing ground truth solutions for comparison with neural operators.
 """
 
-from .ivp import solve, BCType, newton_raphson_step, implicit_euler_step
+from .ivp import solve, newton_raphson_step, implicit_euler_step
+from .grid import BCType
 from .derivatives import (
     d__dx_c_periodic, d2__dx2_c_periodic,
     d__dx_c_dirichlet, d2__dx2_c_dirichlet

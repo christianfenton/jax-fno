@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 from typing import Dict, Any
 from functools import partial
-from ..ivp import BCType
+from ..grid import BCType
 from ..derivatives import *
 
 
@@ -33,8 +33,8 @@ def burgers_residual_1d(u_new: jnp.ndarray, u_old: jnp.ndarray, dt: float, dx: f
         return du_dx, d2u_dx2
     
     def dirichlet_derivatives(_):
-        bc_left = params['bc_left']
-        bc_right = params['bc_right']
+        bc_left = params.get('bc_left', 0.0)  # Use default if not provided
+        bc_right = params.get('bc_right', 0.0)  # Use default if not provided
         du_dx = d__dx_c_dirichlet(u_new, dx, bc_left, bc_right)
         d2u_dx2 = d2__dx2_c_dirichlet(u_new, dx, bc_left, bc_right)
         return du_dx, d2u_dx2
@@ -120,8 +120,8 @@ def burgers_jvp_dirichlet(
 ) -> jnp.ndarray:
     """Analytical Jacobian-vector product for Burgers equation with Dirichlet BCs."""
     nu = params['nu']
-    bc_left = params['bc_left']
-    bc_right = params['bc_right']
+    bc_left = params.get('bc_left', 0.0)  # Use default if not provided
+    bc_right = params.get('bc_right', 0.0)  # Use default if not provided
     
     # Time derivative contribution
     time_jvp = v / dt

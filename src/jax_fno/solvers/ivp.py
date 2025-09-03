@@ -9,22 +9,10 @@ import jax
 import jax.numpy as jnp
 from typing import Callable, NamedTuple, Tuple, Dict, Any, Optional
 from functools import partial
-from enum import IntEnum
+from .grid import create_uniform_grid
 
 
-class BCType(IntEnum):
-    """
-    Boundary condition types.
-    
-    Currently supported boundary conditions:
-        PERIODIC
-        DIRICHLET
-    """
-    # IntEnum supports JAX compilation
-    PERIODIC = 0
-    DIRICHLET = 1
-
-
+@partial(jax.jit, static_argnames=['residual_fn', 'jvp_fn'])
 def newton_raphson_step(
     u_new: jnp.ndarray,
     u_old: jnp.ndarray,
@@ -34,7 +22,7 @@ def newton_raphson_step(
     residual_fn: Callable,
     jvp_fn: Optional[Callable] = None,
     maxiter: int = 50,
-    tol: float = 1e-10
+    tol: float = 1e-6
 ) -> jnp.ndarray:
     """
     Perform a single step of the Newton-Raphson method using matrix-free GMRES.
@@ -72,6 +60,7 @@ def newton_raphson_step(
     return u_new + delta_u
 
 
+@partial(jax.jit, static_argnames=['residual_fn', 'jvp_fn'])
 def implicit_euler_step(
     u_old: jnp.ndarray,
     dt: float,
@@ -79,9 +68,9 @@ def implicit_euler_step(
     parameters: Dict[str, Any],
     residual_fn: Callable,
     jvp_fn: Optional[Callable] = None,
-    tol: float = 1e-8,
+    tol: float = 1e-6,
     maxiter: int = 10,
-    tol_gmres: float = 1e-8,
+    tol_gmres: float = 1e-6,
     maxiter_gmres: int = 50
 ) -> jnp.ndarray:
     """
@@ -130,57 +119,21 @@ def implicit_euler_step(
     return u_final
 
 
-@partial(jax.jit, static_argnames=['residual_fn', 'jvp_fn', 'nt'])
-def _solve_jit(
-    initial_condition: jnp.ndarray,
-    dt: float,
-    dx: float,
-    parameters: Dict[str, Any],
-    residual_fn: Callable,
-    jvp_fn: Optional[Callable],
-    tol: float,
-    maxiter: int,
-    tol_gmres: float,
-    maxiter_gmres: int,
-    nt: int
-) -> jnp.ndarray:
-    """
-    JIT-compiled function barrier for time-stepping loop in 'solve'.
-    
-    The function barrier allows the scan loop to be compiled once per 
-    (nt, residual_fn, jvp_fn) combination, reducing recompilation overhead.
-    """
-    # Functional form in JAX 'scan' loop
-    def scan_step(u_curr, _):
-        """Single time step for lax.scan."""
-        u_new = implicit_euler_step(
-            u_curr, dt, dx, parameters, residual_fn, jvp_fn,
-            tol, maxiter, tol_gmres, maxiter_gmres
-        )
-        return u_new, u_new
-    
-    # Loop over time steps
-    _, u_history = jax.lax.scan(scan_step, initial_condition, jnp.arange(nt - 1))
-    
-    # Stack initial condition with computed history
-    u = jnp.concatenate([initial_condition[None, :], u_history], axis=0)
-    
-    return u
-
-
 def solve(
-    initial_condition: jnp.ndarray,
+    initial_condition: Callable,
     t_span: Tuple[float, float],
-    L: float,
     residual_fn: Callable,
     parameters: Dict[str, Any],
+    L: float,
+    nx: int,
     jvp_fn: Optional[Callable] = None,
     dt: float = 0.01,
-    tol: float = 1e-8,
+    tol: float = 1e-6,
     maxiter: int = 10,
-    tol_gmres: float = 1e-8,
-    maxiter_gmres: int = 50
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    tol_gmres: float = 1e-6,
+    maxiter_gmres: int = 20,
+    save_every: int = 1
+) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """
     Solve a non-linear initial value problem with an implicit Euler method.
 
@@ -190,11 +143,12 @@ def solve(
     the Jacobian vector product (JVP) of the system (see the `README.md` for further details).
     
     Args:
-        initial_condition: Initial condition array
+        initial_condition: Callable function u0(x) that defines the initial condition
         t_span: (t_start, t_end) time interval
-        L: Domain length
         residual_fn: Function with signature residual_fn(u_new, u_old, dt, dx, params) -> residual
         parameters: Dictionary of PDE parameters used in residual_fn and jvp_fn
+        L: Domain length
+        nx: Number of grid points
         jvp_fn: Optional function computing Jacobian-vector products:
                 jvp_fn(u_new, u_old, dt, dx, params, v) -> J @ v
                 If None, uses JAX automatic differentiation
@@ -203,22 +157,83 @@ def solve(
         maxiter: Maximum Newton-Raphson iterations per time step
         tol_gmres: GMRES solver tolerance
         maxiter_gmres: Maximum GMRES iterations per Newton step
+        save_every: Save solution every N time steps (1 = save all, default 1)
         
     Returns:
-        Tuple of (time_array, solution_array)
+        Tuple of (time_array, spatial_grid, solution_array)
     """
     t_start, t_end = t_span
-    nx = len(initial_condition)
-    dx = L / nx
+    
+    # Determine boundary condition type
+    bc_type = parameters.get('bc_type', None)
+    if bc_type is None:
+        raise ValueError("parameters must include 'bc_type' to determine proper grid spacing")
+    
+    # Create grid and evaluate initial condition
+    x, dx = create_uniform_grid(L, nx, bc_type, return_spacing=True)
+    u0 = initial_condition(x)
     
     # Set up time array
     nt = int((t_end - t_start) / dt) + 1
-    t = jnp.linspace(t_start, t_end, nt)
+    t_full = jnp.linspace(t_start, t_end, nt)
     
-    # Call JIT-compiled time-stepping loop
-    u = _solve_jit(
-        initial_condition, dt, dx, parameters, residual_fn, jvp_fn,
-        tol, maxiter, tol_gmres, maxiter_gmres, nt
-    )
+    # Initialise storage lists
+    u_saved = [u0]
+    t_saved = [t_start]
     
-    return t, u
+    u_current = u0
+    
+    for step in range(1, nt):
+        u_current = implicit_euler_step(
+            u_current, dt, dx, parameters, residual_fn, jvp_fn,
+            tol, maxiter, tol_gmres, maxiter_gmres
+        )
+        
+        # Save solution every save_every steps or at the final step
+        if step % save_every == 0 or step == nt - 1:
+            u_saved.append(u_current)
+            t_saved.append(t_full[step])
+    
+    # Convert lists to JAX arrays
+    u_array = jnp.stack(u_saved, axis=0)
+    t_array = jnp.array(t_saved)
+
+    return t_array, x, u_array
+
+
+# @partial(jax.jit, static_argnames=['residual_fn', 'jvp_fn', 'nt'])
+# def _solve_jit(
+#     initial_condition: jnp.ndarray,
+#     dt: float,
+#     dx: float,
+#     parameters: Dict[str, Any],
+#     residual_fn: Callable,
+#     jvp_fn: Optional[Callable],
+#     tol: float,
+#     maxiter: int,
+#     tol_gmres: float,
+#     maxiter_gmres: int,
+#     nt: int
+# ) -> jnp.ndarray:
+#     """
+#     JIT-compiled function barrier for time-stepping loop in 'solve'.
+    
+#     The function barrier allows the scan loop to be compiled once per 
+#     (nt, residual_fn, jvp_fn) combination, reducing recompilation overhead.
+#     """
+#     # Functional form in JAX 'scan' loop
+#     def scan_step(u_curr, _):
+#         """Single time step for lax.scan."""
+#         u_new = implicit_euler_step(
+#             u_curr, dt, dx, parameters, residual_fn, jvp_fn,
+#             tol, maxiter, tol_gmres, maxiter_gmres
+#         )
+#         return u_new, u_new
+    
+#     # Loop over time steps
+#     _, u_history = jax.lax.scan(scan_step, initial_condition, jnp.arange(nt - 1))
+    
+#     # Stack initial condition with computed history
+#     u = jnp.concatenate([initial_condition[None, :], u_history], axis=0)
+    
+#     return u

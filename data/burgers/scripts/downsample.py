@@ -1,198 +1,114 @@
-#!/usr/bin/env python3
 """
-Downsample Burgers equation datasets to lower spatial resolution.
+Script for downsampling a dataset with periodic boundary conditions to a target resolution.
 
-This script loads a high-resolution dataset and creates a downsampled version
-using linear interpolation. Useful for creating training/testing datasets
-at multiple resolutions.
+Data with resolution 2^p is downsampled to resolution 2^t 
+by taking every (2^(p-t))-th point starting from index 0.
 """
 
-import jax.numpy as jnp
-import numpy as np
-from pathlib import Path
 import argparse
-import multiprocessing as mp
-from functools import partial
-from jax_fno import load_dataset, save_dataset 
+import os
+import h5py
+import jax.numpy as jnp
+from typing import Optional
 
 
-def downsample(data: jnp.ndarray, nx_coarse: int, n_jobs: int = 1) -> jnp.ndarray:
+def downsample_dataset(input_path: str, output_path: str, target_resolution: Optional[int] = None):
     """
-    Downsample high-resolution data to target resolution.
+    Downsample a dataset with periodic boundary conditions to a target resolution.
+
+    Data with resolution 2^p is downsampled to resolution 2^t 
+    by taking every (2^(p-t))-th point starting from index 0.
     
     Args:
-        data: High-resolution data with shape (n_samples, nx_high)
-        nx_coarse: Target number of spatial points
-        n_jobs: Number of parallel jobs (-1 for all CPUs)
+        input_path: Path to input HDF5 dataset
+        output_path: Path to output downsampled HDF5 dataset  
+        target_resolution: Target resolution (must be power of 2). If None, halve the original resolution.
+    """
+    print(f"Loading dataset from {input_path}...")
+    
+    with h5py.File(input_path, 'r') as input_file:
+        # Load training data
+        train_inputs = jnp.array(input_file['train/inputs'])
+        train_outputs = jnp.array(input_file['train/outputs'])
         
-    Returns:
-        Subsampled data with shape (n_samples, nx_coarse)
-    """
-    n_samples, nx_fine = data.shape
+        # Load test data
+        test_inputs = jnp.array(input_file['test/inputs'])
+        test_outputs = jnp.array(input_file['test/outputs'])
+        
+        # Get metadata
+        metadata = dict(input_file.attrs)
+        
+        original_resolution = train_inputs.shape[1]
+        print(f"Original resolution: {original_resolution}")
+        
+        # Determine target resolution
+        if target_resolution is None:
+            target_resolution = original_resolution // 2
+        
+        # Validate that both resolutions are powers of 2
+        if not (original_resolution & (original_resolution - 1)) == 0:
+            raise ValueError(f"Original resolution {original_resolution} is not a power of 2")
+        if not (target_resolution & (target_resolution - 1)) == 0:
+            raise ValueError(f"Target resolution {target_resolution} is not a power of 2")
+        if target_resolution > original_resolution:
+            raise ValueError(f"Target resolution {target_resolution} cannot be larger than original {original_resolution}")
+        
+        # Calculate downsampling stride
+        stride = original_resolution // target_resolution
+        print(f"Downsampling stride: {stride}")
+        
+        # Downsample by taking every stride-th point
+        train_inputs_ds = train_inputs[:, ::stride, :]  # (batch, target_resolution, features)
+        train_outputs_ds = train_outputs[:, ::stride, :]   # (batch, target_resolution)
+        
+        test_inputs_ds = test_inputs[:, ::stride, :]
+        test_outputs_ds = test_outputs[:, ::stride, :]
+        
+        actual_resolution = train_inputs_ds.shape[1]
+        print(f"Target resolution: {target_resolution}")
+        print(f"Actual resolution: {actual_resolution}")
+        
+        if actual_resolution != target_resolution:
+            raise ValueError(f"Downsampling failed: got {actual_resolution}, expected {target_resolution}")
+        
+        # Update metadata
+        metadata['resolution'] = target_resolution
+        metadata['downsampled_from'] = original_resolution
+        
+        # Save downsampled dataset
+        print(f"Saving downsampled dataset to {output_path}...")
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        with h5py.File(output_path, 'w') as output_file:
+            # Train group
+            train_group = output_file.create_group('train')
+            train_group.create_dataset('inputs', data=train_inputs_ds)
+            train_group.create_dataset('outputs', data=train_outputs_ds)
+            
+            # Test group
+            test_group = output_file.create_group('test')
+            test_group.create_dataset('inputs', data=test_inputs_ds)
+            test_group.create_dataset('outputs', data=test_outputs_ds)
+            
+            # Save metadata
+            for key, value in metadata.items():
+                output_file.attrs[key] = value
     
-    # Create interpolation indices
-    fine_indices = jnp.linspace(0, nx_fine - 1, nx_fine)
-    coarse_indices = jnp.linspace(0, nx_fine - 1, nx_coarse)
+    input_size = os.path.getsize(input_path) / 1024**2
+    output_size = os.path.getsize(output_path) / 1024**2
     
-    def downsample_single(sample_data):
-        """Downsample a single sample."""
-        return jnp.interp(coarse_indices, fine_indices, sample_data)
-    
-    # Determine number of processes
-    if n_jobs == -1:
-        n_jobs = mp.cpu_count()
-    
-    if n_samples < 100 or n_jobs == 1:
-        # For small datasets, use sequential processing anyway
-        coarse_samples = []
-        for i in range(n_samples):
-            coarse_sample = downsample_single(data[i])
-            coarse_samples.append(coarse_sample)
-        return jnp.stack(coarse_samples)
-    else:
-        with mp.Pool(processes=n_jobs) as pool:
-            data_np = np.array(data)
-            coarse_samples = pool.map(downsample_single, [data_np[i] for i in range(n_samples)])
-        return jnp.stack(coarse_samples)
-
-
-def downsample_dataset(
-    input_path: str,
-    output_path: str, 
-    target_resolution: int,
-    n_jobs: int = 1
-) -> None:
-    """
-    Load a dataset and create a downsampled version.
-    
-    Args:
-        input_path: Path to input .npz dataset file
-        output_path: Path for output downsampled dataset
-        target_resolution: Target spatial resolution
-        n_jobs: Number of parallel jobs for downsampling (-1 for all CPUs)
-    """
-    # Load the dataset using jax_fno utilities
-    print("Loading dataset...")
-    dataset, metadata = load_dataset(input_path, convert_to_jax=True)
-    
-    # Extract data arrays
-    train_input = dataset['train_input']
-    train_output = dataset['train_output']
-    test_input = dataset['test_input']  # Fixed typo
-    test_output = dataset['test_output']  # Fixed typo
-
-    original_resolution = metadata['resolution']
-    n_train = metadata['n_train']
-    n_test = metadata['n_test']  # Fixed typo
-
-    grid = dataset.get('grid', jnp.linspace(0, 1, original_resolution, endpoint=False))
-    
-    print(f"Original resolution: {original_resolution}")
-    print(f"Target resolution: {target_resolution}")
-    print(f"Number of samples: {n_train + n_test}")
-    print(f"Using {n_jobs if n_jobs != -1 else 'all available'} CPU cores")
-    
-    print("Downsampling training data...")
-    train_input_coarse = downsample(train_input, target_resolution, n_jobs)
-    train_output_coarse = downsample(train_output, target_resolution, n_jobs)
-
-    print("Downsampling test data...")
-    test_input_coarse = downsample(test_input, target_resolution, n_jobs)
-    test_output_coarse = downsample(test_output, target_resolution, n_jobs)
-    
-    grid_coarse = jnp.linspace(grid[0], grid[-1], target_resolution)
-    
-    # Prepare downsampled dataset
-    downsampled_dataset = {
-        'train_input': train_input_coarse,
-        'train_output': train_output_coarse,
-        'test_input': test_input_coarse,
-        'test_output': test_output_coarse,
-        'grid': grid_coarse,
-    }
-    
-    # Add any other data arrays (not metadata)
-    for key, value in dataset.items():
-        if key not in ['train_input', 'train_output', 'test_input', 'test_output', 'grid']:
-            downsampled_dataset[key] = value
-    
-    # Prepare enhanced metadata
-    metadata_coarse = metadata.copy()
-    metadata_coarse.update({
-        'original_resolution': original_resolution,
-        'resolution': target_resolution,  # Update main resolution field
-        'downsampled_resolution': target_resolution,
-        'downsampling_method': 'linear_interpolation'
-    })
-    
-    # Save using jax_fno utilities
-    save_dataset(downsampled_dataset, output_path, metadata_coarse)
+    print(f"Downsampling completed!")
+    print(f"  Output file size: {output_size:.1f} MB")
 
 
 def main():
-    """Command line interface for downsampling datasets."""
-    parser = argparse.ArgumentParser(
-        description="Downsample Burgers equation datasets to lower spatial resolution"
-    )
-    
-    parser.add_argument(
-        'input_path',
-        type=str,
-        help='Path to input .npz dataset file'
-    )
-    
-    parser.add_argument(
-        'target_resolution',
-        type=int,
-        help='Target spatial resolution (number of grid points)'
-    )
-    
-    parser.add_argument(
-        '--output', '-o',
-        type=str,
-        default=None,
-        help='Output path (default: auto-generate based on input and resolution)'
-    )
-    
-    parser.add_argument(
-        '--jobs', '-j',
-        type=int,
-        default=-1,
-        help='Number of parallel jobs for downsampling (-1 for all CPUs, 1 for sequential)'
-    )
-    
+    parser = argparse.ArgumentParser(description='Downsample Burgers dataset to target resolution')
+    parser.add_argument('input_path', help='Path to input HDF5 dataset')
+    parser.add_argument('output_path', help='Path to output dataset')
+    parser.add_argument('--resolution', type=int, help='Target resolution (must be power of 2)')
     args = parser.parse_args()
-    
-    # Generate output path if not provided
-    if args.output is None:
-        input_path = Path(args.input_path)
-        stem = input_path.stem
-        suffix = input_path.suffix
-        
-        # Extract info from filename to create new name
-        # e.g., burgers_n1200_res1024.npz -> burgers_n1200_res128.npz
-        if '_res' in stem:
-            base_name = stem.split('_res')[0]
-            new_name = f"{base_name}_res{args.target_resolution}{suffix}"
-        else:
-            # Fallback naming
-            new_name = f"{stem}_res{args.target_resolution}{suffix}"
-        
-        output_path = input_path.parent / new_name
-    else:
-        output_path = Path(args.output)
-    
-    # Ensure output directory exists
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Downsample the dataset
-    downsample_dataset(
-        input_path=args.input_path,
-        output_path=str(output_path),
-        target_resolution=args.target_resolution,
-        n_jobs=args.jobs
-    )
+    downsample_dataset(args.input_path, args.output_path, args.resolution)
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

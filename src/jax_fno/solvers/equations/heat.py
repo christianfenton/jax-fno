@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 from typing import Dict, Any
-from ..ivp import BCType
+from ..grid import BCType
 from ..derivatives import *
 
 
@@ -28,8 +28,8 @@ def heat_residual_1d(u_new: jnp.ndarray, u_old: jnp.ndarray, dt: float, dx: floa
         return d2__dx2_c_periodic(u_new, dx)
     
     def dirichlet_derivatives(_):
-        bc_left = params['bc_left']
-        bc_right = params['bc_right']
+        bc_left = params.get('bc_left', 0.0)  # Use default if not provided
+        bc_right = params.get('bc_right', 0.0)  # Use default if not provided
         return d2__dx2_c_dirichlet(u_new, dx, bc_left, bc_right)
     
     # Use jax.lax.cond for JAX-compatible branching

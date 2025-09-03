@@ -13,8 +13,6 @@ class TestFiniteDifferences:
         L = 1.0
         nx = 6 
         dx = L / (nx + 1) 
-        
-        # Interior grid points
         x = jnp.linspace(dx, L - dx, nx)
         
         # Test with linear function: u(x) = x, so du/dx = 1 everywhere
@@ -32,10 +30,8 @@ class TestFiniteDifferences:
     def test_dirichlet_second_derivative(self):
         """Test second derivative with Dirichlet BCs."""
         L = 1.0
-        nx = 6  # Interior points only
+        nx = 6
         dx = L / (nx + 1)
-        
-        # Interior grid points  
         x = jnp.linspace(dx, L - dx, nx)
         
         # Test with quadratic function: u(x) = x^2, so d2u/dx2 = 2 everywhere
@@ -55,12 +51,10 @@ class TestFiniteDifferences:
         L = 1.0
         nx = 16
         dx = L / nx
-        
-        # Periodic grid (no endpoint, wraparound assumed)
         x = jnp.linspace(0, L, nx, endpoint=False)
         
-        # Test with sine function: u(x) = sin(2πx/L)
-        # du/dx = (2π/L) * cos(2πx/L)
+        # Test function: u(x) = sin(2πx/L)
+        # --> du/dx = (2π/L) * cos(2πx/L)
         u = jnp.sin(2 * jnp.pi * x / L)
         
         # Compute derivative using periodic BCs
@@ -80,21 +74,19 @@ class TestFiniteDifferences:
         L = 1.0
         nx = 16
         dx = L / nx
-        
-        # Periodic grid
         x = jnp.linspace(0, L, nx, endpoint=False)
         
-        # Test with sine function: u(x) = sin(2πx/L)
-        # d2u/dx2 = -(2π/L)^2 * sin(2πx/L)
+        # test function: u(x) = sin(2πx/L)
+        # --> d2u/dx2 = -(2π/L)^2 * sin(2πx/L)
         u = jnp.sin(2 * jnp.pi * x / L)
         
-        # Compute second derivative using periodic BCs
+        # Compute second derivative with central differences
         d2u_dx2 = solve_ivp.d2__dx2_c_periodic(u, dx)
         
-        # Expected analytical second derivative
+        # Analytical second derivative
         expected = -(2 * jnp.pi / L)**2 * jnp.sin(2 * jnp.pi * x / L)
 
-        # Use theoretical error bound
+        # Theoretical error bound
         theoretical_tol = (dx**2 / 12) * (2 * jnp.pi / L)**4
         
         assert d2u_dx2.shape == u.shape
@@ -107,37 +99,34 @@ class TestSolver:
     def test_solver_simple_pde(self):
         """Test solver with a simple algebraic PDE: u^2 = 2 (so u = sqrt(2))."""
         
-        def simple_residual(u_new, u_old, dt, dx, params):
+        def r(u_new, u_old, dt, dx, params):
             """Simple PDE: u^2 - 2 = 0, solution should be u = sqrt(2)."""
-            # Ignore time stepping for this algebraic equation
             return u_new**2 - 2.0
         
-        def simple_jvp(u, dt, dx, params, v):
+        def jvp(u, dt, dx, params, v):
             """Jacobian vector product: d/du([u^2 - 2]v) = 2uv."""
             return 2.0 * u * v
         
-        # Problem setup (interior points for Dirichlet-like setup)
         L = 1.0
         nx = 4
+        params = {'bc_type' : solve_ivp.BCType.DIRICHLET}
         
-        # Initial condition (far from solution)
-        u0 = jnp.ones(nx) * 0.5
+        # initial condition
+        def ic(x):
+            return jnp.ones_like(x) * 0.5
         
-        # Parameters (empty for this simple case)
-        params = {}
-        
-        # Solve for steady state (large dt, single step)
-        t, u = solve_ivp.solve(
-            u0, (0.0, 0.1), L,
-            simple_residual,
+        t, x, u = solve_ivp.solve(
+            ic, (0.0, 0.1),
+            r,
             params,
-            jvp_fn=simple_jvp,
+            L=L,
+            nx=nx,
+            jvp_fn=jvp,
             dt=0.1,
             tol=1e-10
         )
         
-        # Check final solution
-        u_final = u[-1]  # Last time step
+        u_final = u[-1]
         expected = jnp.full(nx, jnp.sqrt(2.0))
         
         print(f"Final solution: {u_final}")
@@ -149,33 +138,30 @@ class TestSolver:
     def test_solver_simple_pde_autodiff(self):
         """Test solver with a simple algebraic PDE: u^2 = 2 (so u = sqrt(2))."""
         
-        def simple_residual(u_new, u_old, dt, dx, params):
+        def r(u_new, u_old, dt, dx, params):
             """Simple PDE: u^2 - 2 = 0, solution should be u = sqrt(2)."""
-            # Ignore time stepping for this algebraic equation
             return u_new**2 - 2.0
         
-        # Problem setup (interior points for Dirichlet-like setup)
         L = 1.0
         nx = 4
+        params = {'bc_type' : solve_ivp.BCType.DIRICHLET}
         
-        # Initial condition (far from solution)
-        u0 = jnp.ones(nx) * 0.5
+        # initial condition
+        def ic(x):
+            return jnp.ones_like(x) * 0.5
         
-        # Parameters (empty for this simple case)
-        params = {}
-        
-        # Solve for steady state (large dt, single step)
-        t, u = solve_ivp.solve(
-            u0, (0.0, 0.1), L,
-            simple_residual,
+        t, x, u = solve_ivp.solve(
+            ic, (0.0, 0.1),
+            r,
             params,
+            L=L,
+            nx=nx,
             jvp_fn=None,
             dt=0.1,
             tol=1e-10
         )
         
-        # Check final solution
-        u_final = u[-1]  # Last time step
+        u_final = u[-1]
         expected = jnp.full(nx, jnp.sqrt(2.0))
         
         print(f"Final solution: {u_final}")
@@ -224,15 +210,13 @@ class TestEquations:
             """
             return jnp.exp(-(x - L/2)**2 / (4 * D * t)) / jnp.sqrt(4 * jnp.pi * D * t) 
 
-        # Set up system
+        # Set up
         L = 100.0  # domain length
         nx = 32  # number of grid points
         D = 2.0  # diffusivity
         bc_type = solve_ivp.BCType.DIRICHLET  # boundary condition type 
         bc_values = (0.0, 0.0)  # boundary condition values
-        x = solve_ivp.create_uniform_grid(L, nx, bc_type)  # grid
-
-        # Store PDE parameters in a dictionary
+        t_span = (1.0, 10.0)
         params = {
             'D': D,
             'bc_type': bc_type,
@@ -244,14 +228,9 @@ class TestEquations:
         # Users have to write their own functions to use the solver for other equations
         residual_fn = solve_ivp.heat_residual_1d
 
-        # Time parameters
-        t_span = (1.0, 10.0)
-
-        # Create Gaussian initial condition
-        u0 = analytical_solution(x, t_span[0], D, L)
-
         # Solve the equation
-        t, u_numerical = solve_ivp.solve(u0, t_span, L, residual_fn, params, jvp_fn=solve_ivp.heat_jvp_1d, dt=0.1)
+        u0 = lambda x : analytical_solution(x, t_span[0], D, L)
+        t, x, u_numerical = solve_ivp.solve(u0, t_span, residual_fn, params, L, nx, jvp_fn=solve_ivp.heat_jvp_1d, dt=0.1)
 
         # Compute the analytical solution
         u_analytical = [analytical_solution(x, t[i], D, L) for i in range(len(t))]
