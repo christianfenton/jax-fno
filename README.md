@@ -28,19 +28,19 @@ pip install .
 ### Solving the heat equation with the PDE solver
 
 The diffusion equation in 1D is
-$$
+```math
 \frac{\partial u}{\partial t} = D \frac{\partial^2 u}{\partial x^2},
-$$
+```
 where $u(x,t)$ is the density of some material and $D$ is the diffusivity of the material.
 
 Starting from an initial condition
-$$
+```math
 u(x, t_0) = \frac{1}{\sqrt{4 \pi D t_0}} \exp^{-x^2 / 4 D t_0},
-$$
+```
 at time $t_0$, the diffusion equation has an analytical solution
-$$
+```math
 u(x, t) = \frac{1}{\sqrt{4 \pi D t}} \exp^{-x^2 / 4 D t}
-$$
+```
 at a later time $t$.
 
 Let us solve the heat equation with the `jax_fno.solvers` module.
@@ -118,13 +118,13 @@ plt.show()
 ### Training an FNO
 
 In this example, we aim to learn the mapping $G \colon u \rightarrow v$ such that
-$$
+```math
 v(x) = \frac{du}{dx}
-$$
+```
 for
-$$
+```math
 u(x) = \sin(\alpha x),
-$$ 
+```
 where $x \in [0, 2 \pi]$ and $\alpha \in [0.5, 1]$.
 
 Import the required dependencies:
