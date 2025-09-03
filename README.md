@@ -1,6 +1,6 @@
 # JAX-FNO: Fourier Neural Operators in JAX
 
-This project provides JAX/Flax implementations of Fourier Neural Operators (FNOs) for solving partial differential equations (PDEs), along with a JAX-based initial-value problem (IVP) that can be used to generate new training and testing data.
+This project provides JAX/Flax implementations of Fourier Neural Operators (FNOs) for solving partial differential equations (PDEs), along with a JAX-based initial-value problem (IVP) solver that can be used to generate new training and testing data.
 
 The FNO work in this project is based on [Li, Zongyi, et al. "Fourier neural operator for parametric partial differential equations." arXiv preprint arXiv:2010.08895 (2020).](https://arxiv.org/pdf/2010.08895)
 
@@ -25,7 +25,7 @@ pip install .
 
 ## Basic Usage
 
-### Solving the heat equation with the PDE solver
+### Solving the heat equation with the IVP solver
 
 The diffusion equation in 1D is
 ```math
@@ -80,9 +80,9 @@ r = solve_ivp.heat_residual_1d
 # (optional) Computes the Jacobian vector product (JVP) for Burgers' equation
 jvp=solve_ivp.heat_jvp_1d
 ```
-For other PDEs, users will have to define their own 'residual' functions to pass to the solver for some other PDEs.
+For other IVPs, users will have to define their own 'residual' functions to pass to the solver.
 
-*Note:* Passing a function to compute the JVP often leads to improved performance.
+*Note:* Passing a function to compute the Jacobian vector product typically leads to improved performance in the solver.
 
 Solve the equation:
 ```python
