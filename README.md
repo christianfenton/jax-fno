@@ -277,26 +277,15 @@ metrics = nnx.MultiMetric(loss=nnx.metrics.Average('loss'),)
 
 Define training step functions:
 ```python
-def l2norm_loss(predictions: jax.Array, targets: jax.Array) -> jax.Array:
-    errors = jnp.linalg.norm(targets - predictions, axis=2) / jnp.linalg.norm(targets, axis=2)
-    return jnp.mean(errors)
+def l2_loss(pred, target, eps=1e-6):
+    numerator = jnp.sum((pred - target)**2, axis=-1)
+    denominator = jnp.sum(target**2, axis=-1) + eps
+    return jnp.mean(numerator / denominator)
 
 
-def loss_fn(
-    model: jax_fno.FNO1D, 
-    batch_input: jax.Array, 
-    batch_output: jax.Array
-):
-    """
-    Loss function for the model.
-    
-    Args:
-        model: FNO model
-        batch_input: Input batch of shape (batch_size, n_points, 2)
-        batch_output: Target batch of shape (batch_size, n_points, 1)
-    """
-    predictions = model(batch_input)
-    return l2norm_loss(predictions, batch_output)
+def loss_fn(model: jax_fno.FNO1D, inputs: jax.Array, targets: jax.Array):
+    predictions = model(inputs)
+    return l2_loss(predictions, targets)
 
 
 @nnx.jit
@@ -304,24 +293,19 @@ def train_step(
         model: jax_fno.FNO1D,
         optimizer: nnx.Optimizer,
         metrics: nnx.MultiMetric,
-        batch_input: jax.Array,
-        batch_output: jax.Array
+        inputs: jax.Array,
+        targets: jax.Array
     ):
     grad_fn = nnx.value_and_grad(loss_fn)
-    loss, grads = grad_fn(model, batch_input, batch_output)
-    metrics.update(loss=loss)  # In-place updates
-    optimizer.update(model, grads)  # In-place updates
+    loss, grads = grad_fn(model, inputs, targets)
+    metrics.update(loss=loss)
+    optimizer.update(model, grads)
 
 
 @nnx.jit
-def eval_step(
-        model: jax_fno.FNO1D,
-        metrics: nnx.MultiMetric,
-        batch_input: jax.Array,
-        batch_output: jax.Array
-    ):
-    loss = loss_fn(model, batch_input, batch_output)
-    metrics.update(loss=loss)  # In-place updates
+def eval_step(model: jax_fno.FNO1D, metrics: nnx.MultiMetric, inputs: jax.Array, targets: jax.Array):
+    loss = loss_fn(model, inputs, targets)
+    metrics.update(loss=loss)
 ```
 
 Train and evaluate the model:
@@ -415,7 +399,6 @@ for i, (ax, idx) in enumerate(zip(axes, example_indices)):
     ax.set_xlabel('$x$', fontsize=10)
     ax.set_ylabel('$u(x)$', fontsize=10)
     ax.legend(fontsize=8)
-    # ax.grid(True, alpha=0.3)
 
 plt.tight_layout()
 

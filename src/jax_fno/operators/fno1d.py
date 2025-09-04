@@ -38,7 +38,7 @@ class SpectralConv1D(nnx.Module):
         Returns:
             Output tensor of same shape after spectral convolution
         """
-        batch_size, d_v, n = x.shape
+        n = x.shape[-1]
         
         # Transform to spectral space
         Fx = jnp.fft.rfft(x, n=n, axis=2, norm='ortho')  # Shape: (batch, d_v, n//2+1)
