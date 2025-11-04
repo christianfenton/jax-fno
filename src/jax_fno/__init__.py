@@ -8,7 +8,6 @@ with high-performance traditional solvers for data generation.
 from .operators import FNO1D, FourierLayer1D
 from .solvers import solve, BCType, burgers_residual_1d, burgers_jvp_1d, heat_residual_1d, heat_jvp_1d
 
-__version__ = "0.2.0"
 __all__ = [
     # FNO operators
     "FNO1D",
