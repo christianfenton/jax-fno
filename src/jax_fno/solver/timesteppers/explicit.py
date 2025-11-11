@@ -10,6 +10,8 @@ class ForwardEuler(Stepper):
     """
     Forward Euler method.
     """
+    method_type = 'explicit'
+
     @staticmethod
     def step(
         f: Callable[[jnp.ndarray, float], jnp.ndarray],
@@ -38,6 +40,8 @@ class RK4(Stepper):
     """
     Fourth (4th) order Runge-Kutta method.
     """
+    method_type = 'explicit'
+
     @staticmethod
     def step(
         f: Callable[[jnp.ndarray, float], jnp.ndarray],

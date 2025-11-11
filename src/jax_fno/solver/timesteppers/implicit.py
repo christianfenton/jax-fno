@@ -106,6 +106,7 @@ def newton_raphson(
     return u_final
 
 
+# TODO: add callbacks in iterative solvers to warn about non-convergence
 def dispatch_linear_solver(config: LinearSolverConfig) -> Callable[[Callable, jnp.ndarray], jnp.ndarray]:
     """
     Function factory for a matrix-free iterative linear solver.
@@ -176,6 +177,8 @@ class BackwardEuler(Stepper):
         J = ∂R/∂u_{n+1} = I - dt * ∂f/∂u(u_{n+1}, t_{n+1})
     """
 
+    method_type = 'implicit'
+
     @staticmethod
     def make_residual(
         f: Callable[[jnp.ndarray, float], jnp.ndarray],
@@ -227,10 +230,10 @@ class BackwardEuler(Stepper):
         t: float,
         dt: float,
         *,
+        tol: float,
+        maxiter: int,
         df: Callable[[jnp.ndarray, float], Callable[[jnp.ndarray], jnp.ndarray]],
-        tol: float = 1e-6,
-        maxiter: int = 50,
-        linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray] = default_linear_solver()
+        linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray]
     ) -> jnp.ndarray:
         """
         Advance solution by one time step.
@@ -243,10 +246,10 @@ class BackwardEuler(Stepper):
             u: Current solution at time t
             t: Current time
             dt: Time step size
-            df: Jacobian-vector product of f (REQUIRED).
-                df(u, t) returns a function v -> (∂f/∂u)*v
             tol: Convergence tolerance for Newton-Raphson method
             maxiter: Maximum number of Newton-Raphson iterations
+            df: Jacobian-vector product of f.
+                df(u, t) must return a function with signature v -> (∂f/∂u)*v
             linsolver: Iterative linear solver
 
         Returns:

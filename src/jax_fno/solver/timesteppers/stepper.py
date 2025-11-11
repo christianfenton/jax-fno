@@ -6,7 +6,9 @@ import jax.numpy as jnp
 
 class Stepper(ABC):
     """Base class for time-stepping schemes."""
-    
+
+    method_type: str = 'explicit'  # 'explicit', 'implicit', or 'impex'
+
     @staticmethod
     @abstractmethod
     def step(
