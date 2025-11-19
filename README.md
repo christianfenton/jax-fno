@@ -10,7 +10,7 @@ Clone this repository and install with Poetry
 ```bash
 git clone <repository-url>
 cd jax_fno
-poetry install .
+poetry install
 ```
 
 ## Basic Usage
