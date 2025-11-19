@@ -1,10 +1,10 @@
 """
-JAX-compatible time integration methods for initial value problems.
+Time integration schemes for initial value problems written in JAX.
 
 This module provides:
 - Solver interfaces (solve_ivp, integrate)
 - Time-stepping schemes (ForwardEuler, RK4, BackwardEuler)
-- Setup utilities for spatial discretisation (grids, boundary conditions, operators)
+- Setup utilities for spatial discretisation
 """
 
 # Core integration functions

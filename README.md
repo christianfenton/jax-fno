@@ -6,21 +6,11 @@ The FNO work in this project is based on [Li, Zongyi, et al. "Fourier neural ope
 
 ## Installation
 
-Clone this repository:
+Clone this repository and install with Poetry
 ```bash
 git clone <repository-url>
 cd jax_fno
-```
-
-Create a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-Install the package:
-```bash
-pip install .
+poetry install .
 ```
 
 ## Basic Usage
@@ -53,62 +43,152 @@ import jax_fno.solvers as solve_ivp
 
 Define the analytical solution:
 ```python
-def analytical_diffusion_solution(x, t, D, L):
-    return jnp.exp(-(x - L/2)**2 / (4 * D * t)) / jnp.sqrt(4 * jnp.pi * D * t) 
+def heat_soln_dirichlet(
+    x: jnp.ndarray, 
+    t: float, 
+    diffusivity: float,
+    length: float
+) -> jnp.ndarray:
+    """
+    Return the solution to a 1D heat equation with
+        a Gaussian initial condition and Dirichlet boundary conditions.
+
+    Initial condition at time t=1:
+    u(x, 0) = exp(-(x-L/2)**2 / (4 * D * t0)) / j(4 * pi * D * t0)
+
+    Boundary conditions:
+    u(0, t) = u(L, t) = 0
+
+    Solution at a later time t:
+    u(x, t) = exp(-(x-L/2)**2 / (4 * D * t)) / (4 * pi * D * t)
+
+    Args:
+        x: Grid points
+        t: Time
+        D: Diffusivity
+        L: Grid size
+    """
+    k = 1 / jnp.sqrt(4 * jnp.pi * diffusivity * t)
+    return k * jnp.exp(-((x - length / 2) ** 2) / (4 * diffusivity * t))
 ```
 
-Set up system and store parameters in a dictionary
+Define the governing equation:
 ```python
-L = 100.0  # domain length
-n = 128  # number of grid points
-D = 2.0  # diffusivity
-bc_type = solve_ivp.BCType.DIRICHLET  # boundary condition
+def laplacian_dirichlet_1d(
+    u: jnp.ndarray, 
+    bc_left: float, 
+    bc_right: float, 
+    dx: float
+) -> jnp.ndarray:
+    """
+    Take the Laplacian in a finite difference approach.
+
+    Assumes the boundary points are ghost points with Dirichlet conditions.
+
+    The derivative
+
+    Args:
+        u: The array to be differenced
+        bc_left: The value at the left boundary (first ghost point)
+        bc_right: The value at the right boundary (last ghost point)
+        dx: The grid spacing
+    """
+    dudx = jnp.diff(u, prepend=bc_left, append=bc_right)
+    return jnp.diff(dudx) / dx**2
+
+def heat_rhs_dirichlet(
+    u: jnp.ndarray,
+    t: float,
+    diffusivity: float,
+    bc_left: float,
+    bc_right: float,
+    dx: float,
+) -> jnp.ndarray:
+    """
+    Return right-hand-side of heat equation du/dt = D d2u/dx2.
+
+    Args:
+        u: jnp.ndarray,
+        t: float,
+        diffusivity: float,
+        bc_left: float,
+        bc_right: float,
+        dx: float
+    """
+    d2udx2 = laplacian_dirichlet_1d(u, bc_left, bc_right, dx)
+    return diffusivity * d2udx2
+```
+
+For implicit time-stepping schemes, we can also pass a **matrix-free** Jacobian to improve performance (otherwise the solver defaults to
+automatic differentiation).
+```python
+# This is optional and only used in implicit time-stepping schemes
+def jvp_heat_rhs_dirichlet(
+    u: jnp.ndarray,
+    t: float,
+    v: jnp.ndarray,
+    diffusivity: float,
+    bc_left: float,
+    bc_right: float,
+    dx: float,
+) -> jnp.ndarray:
+    """
+    Return the matrix-free Jacobian df/du * v where f(u) = D d2u/dx2.
+    """
+    d2vdx2 = laplacian_dirichlet_1d(v, bc_left, bc_right, dx)
+    return diffusivity * d2vdx2
+```
+
+Set system parameters:
+```python
+diffusivity = 2.0
+length = 100.0  # domain length
+nx = 128  # number of grid points
+dx = length / (nx + 1)  # grid spacing (grid points are in the interior)
 bc_values = (0.0, 0.0)  # boundary condition values
-params = {
-    'D': D, 
-    'bc_type': bc_type,
-    'bc_left': bc_values[0], 
-    'bc_right': bc_values[1]
-    }
+t_span = (1.0, 10.0)  # (start_time, end_time)
+x = jnp.linspace(dx, length - dx, nx, endpoint=True)  # grid
 ```
 
-Load pre-defined functions for the heat equation:
+Fix parameters in governing equations:
 ```python
-# Computes the the right-hand-side of Burgers' equation
-r = solve_ivp.heat_residual_1d
+f = lambda u, t: heat_rhs_dirichlet(
+    u, t, 
+    diffusivity, bc_values[0], bc_values[1], dx
+)
 
-# (optional) Computes the Jacobian vector product (JVP) for Burgers' equation
-jvp=solve_ivp.heat_jvp_1d
+jvp = lambda u, t, v: jvp_heat_rhs_dirichlet(
+    u, t, v, 
+    diffusivity, bc_values[0], bc_values[1], dx
+)
 ```
-For other IVPs, users will have to define their own 'residual' functions to pass to the solver.
 
-*Note:* Passing a function to compute the Jacobian vector product typically leads to improved performance in the solver.
-
-Solve the equation:
+Create an initial condition:
 ```python
-ic = lambda x : analytical_diffusion_solution(x, t_span[0], D, L)
+u0 = heat_soln_dirichlet(x, t_span[0], diffusivity, length)
+```
 
-t, u = solve_ivp.solve(
-    initial_condition=ic,
-    t_span=(1.0, 10.0),  # start and end times
-    L=L,
-    n=n,
-    residual_fn=r
-    parameters=params,
-    jvp_fn=jvp,
-    dt=1e-2  # time-step size 
+Solve the equation
+```python
+u_final, t_final = solver.integrate(
+    f,
+    u0,
+    t_span,
+    dt=1e-1,
+    stepper=solver.BackwardEuler(),
+    jvp=jvp
 )
 ```
 
 Plot the solutions:
 ```python
-u0 = analytical_diffusion_solution(x, t_span[0], D, L)
-uT = analytical_diffusion_solution(x, t_span[1], D, L)
+u0 = heat_soln_dirichlet(x, t_span[0], diffusivity, length)
+uT = heat_soln_dirichlet(x, t_span[1], diffusivity, length)
 
 fig, ax = plt.subplots(figsize=(4,3), layout='tight')
 ax.plot(x, u0, ls=':', label="Initial condition $u_0$")
-ax.plot(x, u[-1, :], ls='-', marker='.', label=f"Numerical soln. at $t={t[-1]:.2f}$")
-ax.plot(x, uT, ls=':', label=f"Analytical soln. at $t={t[-1]:.2f}$")
+ax.plot(x, u_final, ls='-', marker='.', label=f"Numerical soln. at $t={t_final:.2f}$")
+ax.plot(x, uT, ls=':', label=f"Analytical soln. at $t={t_span[1]:.2f}$")
 ax.legend(fontsize=8)
 ax.set_xlabel('x', fontsize=10)
 ax.set_ylabel('u', fontsize=10)

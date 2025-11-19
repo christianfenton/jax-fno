@@ -36,15 +36,12 @@ class ImplicitStepper(AbstractStepper):
         *,
         tol: float,
         maxiter: int,
-        df: Callable[
-            [jnp.ndarray, float], 
-            Callable[[jnp.ndarray], jnp.ndarray]
-        ],
+        jvp: Callable[[jnp.ndarray, float, jnp.ndarray], jnp.ndarray],
         linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray],
     ) -> jnp.ndarray:
         """
         Advance the solution u from t to t+dt.
-        
+
         Args:
             f: RHS function: du/dt = f(u, t)
             u: Current solution at time t
@@ -54,8 +51,7 @@ class ImplicitStepper(AbstractStepper):
         Kwargs:
             tol: Convergence tolerance for Newton-Raphson method
             maxiter: Maximum number of Newton-Raphson iterations
-            df: Jacobian-vector product of f.
-                df(u, t) must return a function with signature v -> (∂f/∂u)*v
+            jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v
             linsolver: Iterative linear solver
         """
         pass
@@ -98,9 +94,7 @@ class BackwardEuler(ImplicitStepper):
 
     @staticmethod
     def make_jvp(
-        df: Callable[
-            [jnp.ndarray, float], Callable[[jnp.ndarray], jnp.ndarray]
-        ],
+        jvp: Callable[[jnp.ndarray, float, jnp.ndarray], jnp.ndarray],
         t_prev: float,
         dt: float,
     ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
@@ -110,15 +104,14 @@ class BackwardEuler(ImplicitStepper):
         Jacobian of residual: J = I - dt * ∂f/∂u
 
         Args:
-            df: Jacobian-vector product of f.
-                df(u, t) returns a function v -> (∂f/∂u)*v
+            jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v
             t_prev: Time at previous step
             dt: Time step size
 
         Returns:
             Function (u, v) -> J(u) * v = v - dt * (∂f/∂u)*v
         """
-        return lambda u, v: v - dt * df(u, t_prev + dt)(v)
+        return lambda u, v: v - dt * jvp(u, t_prev + dt, v)
 
     @staticmethod
     def step(
@@ -129,10 +122,7 @@ class BackwardEuler(ImplicitStepper):
         *,
         tol: float,
         maxiter: int,
-        df: Callable[
-            [jnp.ndarray, float], 
-            Callable[[jnp.ndarray], jnp.ndarray]
-        ],
+        jvp: Callable[[jnp.ndarray, float, jnp.ndarray], jnp.ndarray],
         linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray],
     ) -> jnp.ndarray:
         """
@@ -150,8 +140,7 @@ class BackwardEuler(ImplicitStepper):
         Kwargs:
             tol: Convergence tolerance for Newton-Raphson method
             maxiter: Maximum number of Newton-Raphson iterations
-            df: Jacobian-vector product of f.
-                df(u, t) must return a function with signature v -> (∂f/∂u)*v
+            jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v
             linsolver: Iterative linear solver
 
         Returns:
@@ -161,7 +150,7 @@ class BackwardEuler(ImplicitStepper):
         residual_fn = BackwardEuler.make_residual(f, u, t, dt)
 
         # Define Jacobian-vector product
-        jvp_fn = BackwardEuler.make_jvp(df, t, dt)
+        jvp_fn = BackwardEuler.make_jvp(jvp, t, dt)
 
         # Initial guess (forward Euler step)
         u_guess = u + dt * f(u, t)
