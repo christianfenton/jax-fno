@@ -174,7 +174,7 @@ class FNO1D(nnx.Module):
         self.lift = Linear1D(subkey, input_dim, width)
         
         # Fourier layers
-        self.fourier_layers = []
+        self.fourier_layers = nnx.List([])
         for i in range(n_layers):
             key, subkey = jax.random.split(key)
             layer = FourierLayer1D(key=subkey, channels_in=width, channels_out=width, n_modes=n_modes)
