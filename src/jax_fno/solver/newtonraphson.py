@@ -1,62 +1,81 @@
-from typing import Callable
+from typing import Callable, Optional
 
 import jax
 import jax.numpy as jnp
 
 
 def newton_raphson(
-    u0: jnp.ndarray,
+    y0: jnp.ndarray,
     R: Callable[[jnp.ndarray], jnp.ndarray],
-    jvp: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray],
-    linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray],
+    jac_or_jvp: Callable,
+    linsolver: Optional[Callable[[Callable, jnp.ndarray], jnp.ndarray]],
     tol: float,
     maxiter: int,
+    dense: bool = False,
 ) -> jnp.ndarray:
     """
-    Solve the non-linear system R(u) = 0 using a Newton-Raphson method.
+    Solve the non-linear system R(y) = 0 using a Newton-Raphson method.
 
-    Iterative update: u <-- u - J^{-1}(u) * R(u)
+    Iterative update: y <-- y - J^{-1}(y) * R(y)
+
+    Supports both dense Jacobian (direct solve) and matrix-free JVP (iterative solve).
 
     Args:
-        u0: Initial guess
-        R: A function returning the residual R(u)
-        jvp: Jacobian-vector product with signature (u, v) -> J(u) * v
-        linsolver_fn: Linear solver: (J_op, rhs) -> solution
-        tol: Convergence tolerance. Default: 1e-6.
-        maxiter: Maximum number of iterations. Default: 50.
+        y0: Initial guess
+        R: A function returning the residual R(y)
+        jac_or_jvp: Either:
+            - Dense mode: Jacobian function y -> J(y) (matrix)
+            - Matrix-free mode: JVP function (y, v) -> J(y) * v
+        linsolver: Linear solver for matrix-free mode: (J_op, rhs) -> solution
+            Required when dense=False, ignored when dense=True
+        tol: Convergence tolerance
+        maxiter: Maximum number of iterations
+        dense: If True, use dense Jacobian with direct solve.
+               If False, use JVP with iterative solve.
 
     Returns:
-        Final solution u
+        Final solution y
     """
 
-    u_k = u0
-    r_k = R(u_k)
-    state0 = (u_k, r_k, 0)
+    y_k = y0
+    r_k = R(y_k)
+    state0 = (y_k, r_k, 0)
 
-    def body_fun(state):
-        """
-        Update the solution by solving linear system: J(u_k) * delta = -r_k
-        """
-        u_k, r_k, k = state
-        delta = linsolver(lambda v: jvp(u_k, v), -r_k)
-        u_kp1 = u_k + delta
-        r_kp1 = R(u_kp1)
-        return (u_kp1, r_kp1, k + 1)
+    if dense:
+        # Dense Jacobian path - use direct solve
+        def body_fun(state):
+            y_k, r_k, k = state
+            J_k = jac_or_jvp(y_k)  # Get dense Jacobian matrix
+            delta = jnp.linalg.solve(J_k, -r_k)  # Direct solve
+            y_kp1 = y_k + delta
+            r_kp1 = R(y_kp1)
+            return (y_kp1, r_kp1, k + 1)
+    else:
+        # Matrix-free JVP path - use iterative solve
+        if linsolver is None:
+            raise ValueError("linsolver must be provided when dense=False")
+
+        def body_fun(state):
+            y_k, r_k, k = state
+            delta = linsolver(lambda v: jac_or_jvp(y_k, v), -r_k)
+            y_kp1 = y_k + delta
+            r_kp1 = R(y_kp1)
+            return (y_kp1, r_kp1, k + 1)
 
     def cond_fun(state):
         _, r_k, k = state
         return (jnp.linalg.norm(r_k) > tol) & (k < maxiter)
 
-    u_final, _, niters = jax.lax.while_loop(cond_fun, body_fun, state0)
+    y_final, _, niters = jax.lax.while_loop(cond_fun, body_fun, state0)
 
     def callback(iters, maxiter):
         if iters >= maxiter:
             print(
-                "Newton-Raphson method did not converge"
+                "Newton-Raphson method did not converge "
                 + f"within {int(maxiter)} iterations."
             )
         return None
 
     jax.pure_callback(callback, None, niters, maxiter)
 
-    return u_final
+    return y_final

@@ -11,80 +11,82 @@ from .linearsolver import default_linear_solver
 
 
 def _integrate_explicit(
-    f: Callable[[jnp.ndarray, float], jnp.ndarray],
-    u0: jnp.ndarray,
+    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
     t_span: Tuple[float, float],
-    dt: float,
+    y0: jnp.ndarray,
     stepper: ExplicitStepper,
+    dt: float,
 ) -> Tuple[jnp.ndarray, float]:
     """
     Time-integration with explicit stepping schemes.
 
     Args:
-        f: RHS function: du/dt = f(u, t)
-        u0: Initial condition
+        fun: Right-hand side of the system dy/dt = fun(t, y)
         t_span: (t_start, t_end) time interval
+        y0: Initial condition
+        stepper: Integration method to use (ExplicitStepper instance)
         dt: Time step size
-        stepper: Explicit time-stepping scheme
 
     Returns:
-        u_final: Solution at t_end
+        y_final: Final solution
         t_final: Final time
     """
     t_start, t_end = t_span
 
     def cond_fn(carry):
-        u, t = carry
+        t, y = carry
         return t < t_end
 
     def body_fn(carry):
-        u, t = carry
+        t, y = carry
         # Adjust final step to hit t_end exactly
         dt_step = jnp.maximum(0.0, jnp.minimum(dt, t_end - t))
-        u_next = stepper.step(f, u, t, dt_step)
+        y_next = stepper.step(fun, t, y, dt_step)
         t_next = t + dt_step
-        return (u_next, t_next)
+        return (t_next, y_next)
 
-    u_final, t_final = jax.lax.while_loop(cond_fn, body_fn, (u0, t_start))
-    return u_final, t_final
+    t_final, y_final = jax.lax.while_loop(cond_fn, body_fn, (t_start, y0))
+    return y_final, t_final
 
 
 def _integrate_implicit(
-    f: Callable[[jnp.ndarray, float], jnp.ndarray],
-    u0: jnp.ndarray,
+    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
     t_span: Tuple[float, float],
-    dt: float,
+    y0: jnp.ndarray,
     stepper: ImplicitStepper,
+    dt: float,
     **stepper_kwargs,
-) -> Tuple[jnp.ndarray, float]:
+) -> Tuple[float, jnp.ndarray]:
     """
     Time-integration with implicit stepping schemes.
 
     Args:
-        f: RHS function: du/dt = f(u, t)
-        u0: Initial condition
+        fun: Right-hand side of the system dy/dt = fun(t, y)
         t_span: (t_start, t_end) time interval
-        dt: Time step size
+        y0: Initial condition
         stepper: Implicit time-stepping scheme
+        dt: Time step size
 
     Kwargs:
         tol: Convergence tolerance in Newton-Raphson iterations.
             Default: 1e-6.
         maxiter: Maximum number of Newton-Raphson iterations.
             Default: 50.
-        jvp: Jacobian-vector product with signature (u, t, v) -> (∂f/∂u)*v.
-            Computes the action of the Jacobian ∂f/∂u on vector v.
-            Defaults to using JAX's automatic differentiation.
+        jvp: Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
+            Computes the action of the Jacobian ∂f/∂y on a vector v.
+            If None, defaults to JAX's automatic differentiation (`jax.jvp`). 
+        jac: Evaluates the Jacobian at (t, y), returning a dense matrix.
+            If provided, systems are solved directly 
+            with `jax.numpy.linalg.solve`)
         linsolver: Linear solver used inside the Newton-Raphson method.
-            Must be a matrix-free iterative method.
-            Default: GMRES ('jax.scipy.sparse.linalg.gmres')
-                with tol=1e-6 and maxiter=100.
+            Required for matrix-free (jvp) mode.
+            Default: GMRES with tol=1e-6 and maxiter=100.
 
     Returns:
-        u_final: Solution at t_end
         t_final: Final time
+        y_final: Solution at t_end
     """
-    allowed_kwargs = ["tol", "maxiter", "linsolver", "jvp"]
+    allowed_kwargs = ["tol", "maxiter", "linsolver", "jvp", "jac"]
     for k in stepper_kwargs.keys():
         if k not in allowed_kwargs:
             raise ValueError(
@@ -97,76 +99,98 @@ def _integrate_implicit(
     # Get optional arguments
     tol = stepper_kwargs.get("tol", 1e-6)
     maxiter = stepper_kwargs.get("maxiter", 50)
-    linsolver = stepper_kwargs.get("linsolver", default_linear_solver())
+    jac = stepper_kwargs.get("jac", None)
+    jvp = stepper_kwargs.get("jvp", None)
 
-    # Default JVP using JAX automatic differentiation
-    def jvp_default(u: jnp.ndarray, t: float, v: jnp.ndarray) -> jnp.ndarray:
-        """Compute (∂f/∂u)*v using automatic differentiation."""
-        return jax.jvp(lambda u_: f(u_, t), (u,), (v,))[1]
+    # Set up Jacobian (either dense or matrix-free)
+    if jac is None and jvp is None:
+        # Default: use JAX automatic differentiation for JVP
+        def jvp_default(
+            t: float, y: jnp.ndarray, v: jnp.ndarray
+        ) -> jnp.ndarray:
+            """Compute (∂f/∂y)*v using automatic differentiation."""
+            return jax.jvp(lambda y_: fun(t, y_), (y,), (v,))[1]
 
-    jvp = stepper_kwargs.get("jvp", jvp_default)
+        jvp = jvp_default
+
+    # Get linear solver (only needed for matrix-free mode)
+    linsolver = stepper_kwargs.get("linsolver", None)
+    if jac is None and linsolver is None:
+        linsolver = default_linear_solver()
 
     def cond_fn(carry):
-        u, t = carry
+        t, y = carry
         return t < t_end
 
     def body_fn(carry):
-        u, t = carry
+        t, y = carry
+
         # Adjust final step to hit t_end exactly
-        # max(0, ...) prevents negative dt from floating-point errors
         dt_step = jnp.maximum(0.0, jnp.minimum(dt, t_end - t))
-        u_next = stepper.step(
-            f, u, t, dt_step,
-            jvp=jvp, linsolver=linsolver, tol=tol, maxiter=maxiter
+
+        y_next = stepper.step(
+            fun,
+            t,
+            y,
+            dt_step,
+            jvp=jvp,
+            jac=jac,
+            linsolver=linsolver,
+            tol=tol,
+            maxiter=maxiter,
         )
+
         t_next = t + dt_step
-        return (u_next, t_next)
 
-    u_final, t_final = jax.lax.while_loop(cond_fn, body_fn, (u0, t_start))
+        return (t_next, y_next)
 
-    return u_final, t_final
+    t_final, y_final = jax.lax.while_loop(cond_fn, body_fn, (t_start, y0))
+
+    return t_final, y_final
 
 
 def integrate(
-    f: Callable[[jnp.ndarray, float], jnp.ndarray],
-    u0: jnp.ndarray,
+    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
     t_span: Tuple[float, float],
-    dt: float,
+    y0: jnp.ndarray,
     stepper: AbstractStepper,
+    dt: float,
     **kwargs,
-) -> Tuple[jnp.ndarray, float]:
+) -> Tuple[float, jnp.ndarray]:
     """
-    Integrate du/dt = f(u, t) from t=t_start to t=t_end.
+    Integrate dy/dt = fun(t, y) from t=t_start to t=t_end.
 
     Args:
-        f: Callable right-hand side of IVP du/dt = f(u, t)
-        u0: Initial condition
+        fun: Callable right-hand side of system dy/dt = fun(t, y)
         t_span: (t_start, t_end) time interval
-        dt: Time step size
+        y0: Initial condition
         stepper: Time-stepping scheme instance
+        dt: Time step size
 
     For implicit methods, the following keyword arguments are available:
         tol: Convergence tolerance in the Newton-Raphson iterations.
             Default: 1e-6.
         maxiter: Maximum number of Newton-Raphson iterations. Default: 50.
-        jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v.
-            Computes the action of the Jacobian ∂f/∂u on vector v.
-            Defaults to using JAX's automatic differentiation.
+        jvp: Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
+            Computes the action of the Jacobian ∂f/∂y on a vector v.
+            If None, defaults to JAX's automatic differentiation (`jax.jvp`). 
+        jac: Evaluates the Jacobian at (t, y), returning a dense matrix.
+            If provided, systems are solved directly 
+            with `jax.numpy.linalg.solve`)
         linsolver: Linear solver used inside the Newton-Raphson method.
-            Must be a matrix-free iterative method.
-            Default: GMRES ('jax.scipy.sparse.linalg.gmres')
-                with tol=1e-6 and maxiter=100.
+            Required for matrix-free (jvp) mode.
+            Default: GMRES with tol=1e-6 and maxiter=100.
 
     Keyword arguments passed to explicit time-steppers are ignored.
 
     Returns:
-        u_final: Solution at t_end
         t_final: Final time
+        y_final: Solution at t_end
     """
     if isinstance(stepper, ExplicitStepper):
-        return _integrate_explicit(f, u0, t_span, dt, stepper)
+        return _integrate_explicit(fun, t_span, y0, stepper, dt)
     elif isinstance(stepper, ImplicitStepper):
-        return _integrate_implicit(f, u0, t_span, dt, stepper, **kwargs)
+        return _integrate_implicit(fun, t_span, y0, stepper, dt, **kwargs)
     else:
         raise ValueError(
             f"Unknown stepper type: {type(stepper)}. "
@@ -175,28 +199,29 @@ def integrate(
 
 
 def solve_ivp(
-    f: Callable[[jnp.ndarray, float], jnp.ndarray],
-    u0: jnp.ndarray,
+    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
     t_span: Tuple[float, float],
-    dt: float,
+    y0: jnp.ndarray,
     stepper: AbstractStepper,
-    save_every: Optional[int] = None,
+    t_eval: Optional[jnp.ndarray] = None,
+    dt: float = 0.01,
     verbose: bool = False,
-    **stepper_kwargs,
+    **options,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
-    Solve an initial value problem of the form du/dt = f(u, t).
+    Solve an initial value problem for a system of ODEs.
+
+    Solves the initial value problem dy/dt = fun(t, y) with y(t0) = y0.
 
     Args:
-        f: Right-hand side function with signature (u, t) -> dudt
-        u0: Initial condition
+        fun: Right-hand side function with signature (t, y) -> dydt
         t_span: (t_start, t_end) time interval
-        dt: Time step size
-        method: Time-stepping method object (e.g., RK4(), BackwardEuler())
-        save_every: Save every N steps.
-            If None, saves only initial and final states.
-            Intermediate saves trigger recompilation and may 
-                significantly worsen performance.
+        y0: Initial condition
+        stepper: Time-stepping method (e.g., RK4(), BackwardEuler())
+        t_eval: Times at which to store the computed solution.
+            If None, returns only the initial and final states.
+            Must be sorted and lie within t_span.
+        dt: Time step size for integration. Default: 0.01
         verbose: Print progress information
 
     For implicit methods, the following keyword arguments are available:
@@ -204,61 +229,75 @@ def solve_ivp(
             Default: 1e-6.
         maxiter: Maximum number of Newton-Raphson iterations.
             Default: 50.
-        jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v.
-            Computes the action of the Jacobian ∂f/∂u on vector v.
-            Defaults to using JAX's automatic differentiation.
+        jvp: Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
+            Computes the action of the Jacobian ∂f/∂y on a vector v.
+            If None, defaults to JAX's automatic differentiation (`jax.jvp`). 
+        jac: Evaluates the Jacobian at (t, y), returning a dense matrix.
+            If provided, systems are solved directly 
+            with `jax.numpy.linalg.solve`)
         linsolver: Linear solver used inside the Newton-Raphson method.
-            Must be a matrix-free iterative method.
-            Default: GMRES ('jax.scipy.sparse.linalg.gmres')
-                with tol=1e-6 and maxiter=100.
+            Required for matrix-free (jvp) mode.
+            Default: GMRES with tol=1e-6 and maxiter=100.
 
     Keyword arguments passed to explicit time-steppers are ignored.
 
     Returns:
-        u: Array of solution snapshots, shape (n_snapshots, *u0.shape)
-        t: Array of snapshot times, shape (n_snapshots,)
+        t: Array of time points, shape (n_points,)
+        y: Array of solution values at times t, shape (n_points, *y0.shape)
 
-    Example usage with custom Jacobian-vector product:
+    Example usage:
     ```python
     import jax.numpy as jnp
-    from jax_fno.solver import solve_ivp, BackwardEuler
+    from jax_fno.solver import solve_ivp, RK4
 
-    # Define PDE right-hand side
-    def heat_eq(u, t):
-        dx = 0.01
-        diffusivity = 0.1
-        # Laplacian with periodic BC
-        d2u = (jnp.roll(u, -1) - 2*u + jnp.roll(u, 1)) / dx**2
-        return diffusivity * d2u
-
-    # Define Jacobian-vector product of right-hand side
-    def heat_jvp(u, t, v):
-        '''Compute (∂f/∂u)*v for heat equation.'''
-        dx = 0.01
-        diffusivity = 0.1
-        d2v = (jnp.roll(v, -1) - 2*v + jnp.roll(v, 1)) / dx**2
-        return diffusivity * d2v
+    # Define ODE: dy/dt = -y
+    def fun(t, y):
+        return -y
 
     # Solve
-    u0 = jnp.sin(2 * jnp.pi * jnp.linspace(0, 1, 100))
-    u, t = solve_ivp(
-        heat_eq, u0, (0, 1), dt=0.01,
-        stepper=BackwardEuler(),
-        jvp=heat_jvp
+    y0 = jnp.array([1.0])
+    t_span = (0.0, 2.0)
+    t_eval = jnp.linspace(0, 2, 5)
+
+    t, y = solve_ivp(fun, t_span, y0, method=RK4(), t_eval=t_eval, dt=0.01)
+    ```
+
+    Example with implicit method and dense Jacobian:
+    ```python
+    from jax_fno.solver import BackwardEuler
+
+    # Define Jacobian matrix
+    def jac(t, y):
+        return jnp.array([[-1.0]])  # ∂f/∂y for f(t,y) = -y
+
+    t, y = solve_ivp(
+        fun, t_span, y0,
+        method=BackwardEuler(),
+        t_eval=t_eval,
+        dt=0.01,
+        jac=jac  # Use dense Jacobian with direct solve
     )
     ```
     """
     t_start, t_end = t_span
 
-    # Compute minimum number of time steps required
+    # Set up evaluation times
+    if t_eval is None:
+        # Only save initial and final states
+        t_eval = jnp.array([t_start, t_end])
+    else:
+        # Validate t_eval
+        t_eval = jnp.asarray(t_eval)
+        if jnp.any(t_eval < t_start) or jnp.any(t_eval > t_end):
+            raise ValueError("All values in t_eval must be within t_span")
+        if jnp.any(jnp.diff(t_eval) < 0):
+            raise ValueError("t_eval must be sorted in increasing order")
+
+        # Ensure t_start is included
+        if t_eval[0] != t_start:
+            t_eval = jnp.concatenate([jnp.array([t_start]), t_eval])
+
     n_steps_total = int(jnp.ceil((t_end - t_start) / dt))
-
-    if save_every is None:
-        save_every = n_steps_total
-
-    # Compute times where we save intermediate states (including start time)
-    n_saves = max(2, int(jnp.ceil(n_steps_total / save_every)) + 1)
-    t_saves = jnp.linspace(t_start, t_end, n_saves)
 
     if verbose:
         method_name = type(stepper).__name__
@@ -267,22 +306,26 @@ def solve_ivp(
             f"Time: [{t_start}, {t_end}], dt={dt}, "
             f"~{n_steps_total} total steps"
         )
-        print(f"Saving at {len(t_saves)} time points")
+        print(f"Evaluating at {len(t_eval)} time points")
 
     start_time = time.time()
 
-    # Integrate between consecutive save points
-    u_save = [u0]  # initialise storage
-    u = u0
-    for i in range(len(t_saves) - 1):
-        t_chunk_start = t_saves[i]
-        t_chunk_end = t_saves[i + 1]
-        u, _ = integrate(
-            f, u, (t_chunk_start, t_chunk_end), dt, stepper, **stepper_kwargs
-        )
-        u_save.append(u)
+    # Integrate between consecutive evaluation points
+    y_save = [y0]
+    t_save = [t_start]
+    y = y0
 
-    u_arr = jnp.stack(u_save, axis=0)  # convert to arrays
+    for i in range(len(t_eval) - 1):
+        t_chunk_start = t_eval[i]
+        t_chunk_end = t_eval[i + 1]
+        t, y = integrate(
+            fun, (t_chunk_start, t_chunk_end), y, stepper, dt, **options
+        )
+        t_save.append(t)
+        y_save.append(y)
+
+    t_arr = jnp.stack(t_save)
+    y_arr = jnp.stack(y_save, axis=0)
 
     elapsed_time = time.time() - start_time
 
@@ -292,4 +335,4 @@ def solve_ivp(
             f"({n_steps_total / elapsed_time:.1f} steps/s)"
         )
 
-    return u_arr, t_saves
+    return t_arr, y_arr

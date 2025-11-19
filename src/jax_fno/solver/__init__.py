@@ -13,8 +13,6 @@ from .solve_ivp import solve_ivp, integrate
 # Time-stepping schemes
 from .timesteppers import ForwardEuler, RK4, BackwardEuler
 
-from . import setup
-
 __all__ = [
     # Core functions
     'integrate',
@@ -23,6 +21,4 @@ __all__ = [
     'ForwardEuler',
     'RK4',
     'BackwardEuler',
-    # Setup submodule
-    'setup',
 ]

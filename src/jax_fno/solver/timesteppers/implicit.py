@@ -4,18 +4,17 @@ Implicit time-stepping schemes.
 This module implements implicit time integration methods that require solving
 non-linear systems via Newton-Raphson iterations.
 
-A linear solver is used inside each Newton-Raphson iteration.
-
 Each implicit scheme provides:
-    - make_residual: Creates residual function R(u_{n+1}) for the scheme
+    - make_residual: Creates residual function R(y_{n+1}) for the scheme
     - make_jvp: Creates matrix-free Jacobian-vector product function
+    - make_jacobian: Creates dense Jacobian matrix function
     - step: Advance the solution by one time step
 
-Note: Only matrix-free (JVP) Jacobians are currently supported.
+Supports both matrix-free (JVP for large systems) and dense Jacobian (direct solve for small systems).
 """
 
 from abc import abstractmethod
-from typing import Callable
+from typing import Callable, Optional
 
 import jax.numpy as jnp
 
@@ -29,30 +28,38 @@ class ImplicitStepper(AbstractStepper):
     @staticmethod
     @abstractmethod
     def step(
-        f: Callable[[jnp.ndarray, float], jnp.ndarray],
-        u: jnp.ndarray,
+        fun: Callable[[float, jnp.ndarray], jnp.ndarray],
         t: float,
+        y: jnp.ndarray,
         dt: float,
         *,
         tol: float,
         maxiter: int,
-        jvp: Callable[[jnp.ndarray, float, jnp.ndarray], jnp.ndarray],
-        linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray],
+        jvp: Optional[
+            Callable[[float, jnp.ndarray, jnp.ndarray], jnp.ndarray]
+        ] = None,
+        jac: Optional[
+            Callable[[float, jnp.ndarray], jnp.ndarray]
+        ] = None,
+        linsolver: Optional[
+            Callable[[Callable, jnp.ndarray], jnp.ndarray]
+        ] = None,
     ) -> jnp.ndarray:
         """
-        Advance the solution u from t to t+dt.
+        Advance the solution y from t to t+dt.
 
         Args:
-            f: RHS function: du/dt = f(u, t)
-            u: Current solution at time t
+            fun: Right-hand side of system dy/dt = f(t, y)
             t: Current time
+            y: Current solution at time t
             dt: Time step size
 
         Kwargs:
             tol: Convergence tolerance for Newton-Raphson method
             maxiter: Maximum number of Newton-Raphson iterations
-            jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v
-            linsolver: Iterative linear solver
+            jvp: Jacobian-vector product function (t, y, v) -> (∂f/∂y)*v (matrix-free)
+            jac: Jacobian matrix function (t, y) -> ∂f/∂y (dense matrix)
+            linsolver: Linear solver (iterative for JVP, direct for JAC)
         """
         pass
 
@@ -62,102 +69,142 @@ class BackwardEuler(ImplicitStepper):
     Backward Euler time-stepping scheme.
 
     Discretisation:
-        du/dt = f(u, t) --> (u_{n+1} - u_n) / dt = f(u_{n+1}, t_{n+1})
+        dy/dt = f(t, y) --> (y_{n+1} - y_n) / dt = f(t_{n+1}, y_{n+1})
 
     Residual:
-        R(u_{n+1}) = u_{n+1} - u_n - dt * f(u_{n+1}, t_{n+1})
+        R(y_{n+1}) = y_{n+1} - y_n - dt * f(t_{n+1}, y_{n+1})
 
     Jacobian:
-        J = ∂R/∂u_{n+1} = I - dt * ∂f/∂u(u_{n+1}, t_{n+1})
+        J = ∂R/∂y_{n+1} = I - dt * ∂f/∂y(t_{n+1}, y_{n+1})
     """
 
     @staticmethod
     def make_residual(
-        f: Callable[[jnp.ndarray, float], jnp.ndarray],
-        u_prev: jnp.ndarray,
+        fun: Callable[[float, jnp.ndarray], jnp.ndarray],
         t_prev: float,
+        y_prev: jnp.ndarray,
         dt: float,
     ) -> Callable[[jnp.ndarray], jnp.ndarray]:
         """
         Create residual function for a backward Euler scheme.
 
         Args:
-            f: RHS of ODE du/dt = f(u, t)
-            u_prev: Solution at previous time step t_n
+            fun: Right-hand side of system dy/dt = f(t, y)
             t_prev: Time at previous step t_n
+            y_prev: Solution at previous time step t_n
             dt: Time step size
 
         Returns:
-            A function R(u_{n+1}) = u_{n+1} - u_n - dt * f(u_{n+1}, t_{n+1})
+            A function R(y_{n+1}) = y_{n+1} - y_n - dt * f(t_{n+1}, y_{n+1})
         """
-        return lambda u_np1: u_np1 - u_prev - dt * f(u_np1, t_prev + dt)
+        t_next = t_prev + dt
+        return lambda y_np1: y_np1 - y_prev - dt * fun(t_next, y_np1)
 
     @staticmethod
     def make_jvp(
-        jvp: Callable[[jnp.ndarray, float, jnp.ndarray], jnp.ndarray],
+        jvp: Callable[[float, jnp.ndarray, jnp.ndarray], jnp.ndarray],
         t_prev: float,
         dt: float,
     ) -> Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray]:
         """
         Function factory for a matrix-free Jacobian-vector product.
 
-        Jacobian of residual: J = I - dt * ∂f/∂u
+        Jacobian of residual: J = I - dt * ∂f/∂y
 
         Args:
-            jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v
+            jvp: Jacobian-vector product function (t, y, v) -> (∂f/∂y)*v
             t_prev: Time at previous step
             dt: Time step size
 
         Returns:
-            Function (u, v) -> J(u) * v = v - dt * (∂f/∂u)*v
+            Function (y, v) -> J(y) * v = v - dt * (∂f/∂y)*v
         """
-        return lambda u, v: v - dt * jvp(u, t_prev + dt, v)
+        t_next = t_prev + dt
+        return lambda y, v: v - dt * jvp(t_next, y, v)
+
+    @staticmethod
+    def make_jacobian(
+        jac: Callable[[float, jnp.ndarray], jnp.ndarray],
+        t_prev: float,
+        dt: float,
+    ) -> Callable[[jnp.ndarray], jnp.ndarray]:
+        """
+        Function factory for dense Jacobian matrix.
+
+        Jacobian of residual: J = I - dt * ∂f/∂y
+
+        Args:
+            jac: Jacobian matrix function (t, y) -> ∂f/∂y
+            t_prev: Time at previous step
+            dt: Time step size
+
+        Returns:
+            Function y -> J(y) = I - dt * ∂f/∂y(t_{n+1}, y)
+        """
+        t_next = t_prev + dt
+        return lambda y: jnp.eye(y.size) - dt * jac(t_next, y)
 
     @staticmethod
     def step(
-        f: Callable[[jnp.ndarray, float], jnp.ndarray],
-        u: jnp.ndarray,
+        fun: Callable[[float, jnp.ndarray], jnp.ndarray],
         t: float,
+        y: jnp.ndarray,
         dt: float,
         *,
         tol: float,
         maxiter: int,
-        jvp: Callable[[jnp.ndarray, float, jnp.ndarray], jnp.ndarray],
-        linsolver: Callable[[Callable, jnp.ndarray], jnp.ndarray],
+        jvp: Optional[
+            Callable[[float, jnp.ndarray, jnp.ndarray], jnp.ndarray]
+        ] = None,
+        jac: Optional[
+            Callable[[float, jnp.ndarray], jnp.ndarray]
+        ] = None,
+        linsolver: Optional[Callable] = None,
     ) -> jnp.ndarray:
         """
         Perform a backward Euler step.
 
-        Solves: u_{n+1} - u_n - dt * f(u_{n+1}, t_{n+1}) = 0
-        for u_{n+1} using Newton-Raphson method with a matrix-free Jacobian.
+        Solves: y_{n+1} - y_n - dt * f(t_{n+1}, y_{n+1}) = 0
+        for y_{n+1} using Newton-Raphson method.
 
         Args:
-            f: RHS function: du/dt = f(u, t)
-            u: Current solution at time t
+            fun: Right-hand side of system dy/dt = f(t, y)
             t: Current time
+            y: Current solution at time t
             dt: Time step size
 
         Kwargs:
             tol: Convergence tolerance for Newton-Raphson method
             maxiter: Maximum number of Newton-Raphson iterations
-            jvp: Jacobian-vector product function (u, t, v) -> (∂f/∂u)*v
-            linsolver: Iterative linear solver
+            jvp: Jacobian-vector product function (t, y, v) -> (∂f/∂y)*v
+            jac: Jacobian matrix function (t, y) -> ∂f/∂y (dense)
+            linsolver: Linear solver
 
         Returns:
             Solution at time t + dt
         """
         # Define residual function for this step
-        residual_fn = BackwardEuler.make_residual(f, u, t, dt)
-
-        # Define Jacobian-vector product
-        jvp_fn = BackwardEuler.make_jvp(jvp, t, dt)
+        residual_fn = BackwardEuler.make_residual(fun, t, y, dt)
 
         # Initial guess (forward Euler step)
-        u_guess = u + dt * f(u, t)
+        y_guess = y + dt * fun(t, y)
 
-        # Solve system with Newton-Raphson method
-        u_next = newton_raphson(
-            u_guess, residual_fn, jvp_fn, linsolver, tol=tol, maxiter=maxiter
-        )
+        # Choose between dense and matrix-free Jacobian
+        if jac is not None:
+            # Dense Jacobian path
+            jac_fn = BackwardEuler.make_jacobian(jac, t, dt)
+            y_next = newton_raphson(
+                y_guess, residual_fn, jac_fn, None,
+                tol=tol, maxiter=maxiter, dense=True
+            )
+        elif jvp is not None:
+            # Matrix-free JVP path
+            jvp_fn = BackwardEuler.make_jvp(jvp, t, dt)
+            y_next = newton_raphson(
+                y_guess, residual_fn, jvp_fn, linsolver,
+                tol=tol, maxiter=maxiter, dense=False
+            )
+        else:
+            raise ValueError("Must provide either 'jvp' or 'jac'")
 
-        return u_next
+        return y_next

@@ -21,15 +21,15 @@ The diffusion equation in 1D is
 ```math
 \frac{\partial u}{\partial t} = D \frac{\partial^2 u}{\partial x^2},
 ```
-where $u(x,t)$ is the density of some material and $D$ is the diffusivity of the material.
+where $u(t, x)$ is the density of some material and $D$ is the diffusivity of the material.
 
 Starting from an initial condition
 ```math
-u(x, t_0) = \frac{1}{\sqrt{4 \pi D t_0}} \exp^{-x^2 / 4 D t_0},
+u(t=t_0, x) = \frac{1}{\sqrt{4 \pi D t_0}} \exp^{-x^2 / 4 D t_0},
 ```
 at time $t_0$, the diffusion equation has an analytical solution
 ```math
-u(x, t) = \frac{1}{\sqrt{4 \pi D t}} \exp^{-x^2 / 4 D t}
+u(t, x) = \frac{1}{\sqrt{4 \pi D t}} \exp^{-x^2 / 4 D t}
 ```
 at a later time $t$.
 
@@ -38,14 +38,15 @@ Let us solve the heat equation with the `jax_fno.solvers` module.
 Import the required packages:
 ```python
 import jax.numpy as jnp
-import jax_fno.solvers as solve_ivp
+
+from jax_fno import solver
 ```
 
 Define the analytical solution:
 ```python
 def heat_soln_dirichlet(
-    x: jnp.ndarray, 
     t: float, 
+    x: jnp.ndarray, 
     diffusivity: float,
     length: float
 ) -> jnp.ndarray:
@@ -54,17 +55,17 @@ def heat_soln_dirichlet(
         a Gaussian initial condition and Dirichlet boundary conditions.
 
     Initial condition at time t=1:
-    u(x, 0) = exp(-(x-L/2)**2 / (4 * D * t0)) / j(4 * pi * D * t0)
+    u(t0, x) = exp(-(x-L/2)**2 / (4 * D * t0)) / j(4 * pi * D * t0)
 
     Boundary conditions:
-    u(0, t) = u(L, t) = 0
+    u(t, 0) = u(t, L) = 0
 
     Solution at a later time t:
-    u(x, t) = exp(-(x-L/2)**2 / (4 * D * t)) / (4 * pi * D * t)
+    u(t, x) = exp(-(x-L/2)**2 / (4 * D * t)) / (4 * pi * D * t)
 
     Args:
-        x: Grid points
         t: Time
+        x: Grid points
         D: Diffusivity
         L: Grid size
     """
@@ -97,8 +98,8 @@ def laplacian_dirichlet_1d(
     return jnp.diff(dudx) / dx**2
 
 def heat_rhs_dirichlet(
-    u: jnp.ndarray,
     t: float,
+    u: jnp.ndarray,
     diffusivity: float,
     bc_left: float,
     bc_right: float,
@@ -106,14 +107,6 @@ def heat_rhs_dirichlet(
 ) -> jnp.ndarray:
     """
     Return right-hand-side of heat equation du/dt = D d2u/dx2.
-
-    Args:
-        u: jnp.ndarray,
-        t: float,
-        diffusivity: float,
-        bc_left: float,
-        bc_right: float,
-        dx: float
     """
     d2udx2 = laplacian_dirichlet_1d(u, bc_left, bc_right, dx)
     return diffusivity * d2udx2
@@ -124,8 +117,8 @@ automatic differentiation).
 ```python
 # This is optional and only used in implicit time-stepping schemes
 def jvp_heat_rhs_dirichlet(
-    u: jnp.ndarray,
     t: float,
+    u: jnp.ndarray,
     v: jnp.ndarray,
     diffusivity: float,
     bc_left: float,
@@ -152,25 +145,25 @@ x = jnp.linspace(dx, length - dx, nx, endpoint=True)  # grid
 
 Fix parameters in governing equations:
 ```python
-f = lambda u, t: heat_rhs_dirichlet(
-    u, t, 
+f = lambda t, u: heat_rhs_dirichlet(
+    t, u, 
     diffusivity, bc_values[0], bc_values[1], dx
 )
 
-jvp = lambda u, t, v: jvp_heat_rhs_dirichlet(
-    u, t, v, 
+jvp = lambda t, u, v: jvp_heat_rhs_dirichlet(
+    t, u, v, 
     diffusivity, bc_values[0], bc_values[1], dx
 )
 ```
 
 Create an initial condition:
 ```python
-u0 = heat_soln_dirichlet(x, t_span[0], diffusivity, length)
+u0 = heat_soln_dirichlet(t_span[0], x, diffusivity, length)
 ```
 
 Solve the equation
 ```python
-u_final, t_final = solver.integrate(
+t_final, u_final = solver.integrate(
     f,
     u0,
     t_span,
