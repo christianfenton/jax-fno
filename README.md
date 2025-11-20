@@ -13,6 +13,12 @@ cd jax_fno
 poetry install
 ```
 
+# Overview
+
+This project provides two modules:
+- jax_fno.solver: Time-stepping solver for data generation
+- jax_fno.operators: Fourier neural operators
+
 ## Basic Usage
 
 ### Solving the heat equation with the IVP solver
