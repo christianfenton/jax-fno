@@ -133,8 +133,6 @@ Create an FNO1D model instance:
 from flax import nnx
 import jax_fno
 
-key = jax.random.key(42)
-
 model = jax_fno.FNO1D(
     key,
     input_dim=2,            # [u(x), x]
@@ -221,7 +219,7 @@ test_iter = DatasetIterator(
     test_ds, batch_size=batch_size, shuffle=False
 )
 
-shuffle_key = jax.random.key(42)
+shuffle_key = jax.random.key(0)
 
 for epoch in range(1, n_epochs + 1):
     # Training
