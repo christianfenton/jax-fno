@@ -23,4 +23,4 @@ This project provides two Python modules:
 - jax_fno.solver: Time-stepping solver for data generation
 - jax_fno.operators: Fourier neural operators
 
-Check out the [documentation page](link) for further details on these modules.
+Check out the [documentation page](https://christianfenton.github.io/jax-fno/) for further details on these modules.
