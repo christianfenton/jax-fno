@@ -67,18 +67,18 @@ def _integrate_implicit(
         stepper: Implicit time-stepping scheme
         dt: Time step size
 
-    Kwargs:
-        tol: Convergence tolerance in Newton-Raphson iterations.
+    Other Parameters:
+        tol (float): Convergence tolerance in Newton-Raphson iterations.
             Default: 1e-6.
-        maxiter: Maximum number of Newton-Raphson iterations.
+        maxiter (int): Maximum number of Newton-Raphson iterations.
             Default: 50.
-        jvp: Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
+        jvp (Callable, optional): Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
             Computes the action of the Jacobian ∂f/∂y on a vector v.
-            If None, defaults to JAX's automatic differentiation (`jax.jvp`). 
-        jac: Evaluates the Jacobian at (t, y), returning a dense matrix.
-            If provided, systems are solved directly 
+            If None, defaults to JAX's automatic differentiation (`jax.jvp`).
+        jac (Callable, optional): Evaluates the Jacobian at (t, y), returning a dense matrix.
+            If provided, systems are solved directly
             with `jax.numpy.linalg.solve`)
-        linsolver: Linear solver used inside the Newton-Raphson method.
+        linsolver (Callable, optional): Linear solver used inside the Newton-Raphson method.
             Required for matrix-free (jvp) mode.
             Default: GMRES with tol=1e-6 and maxiter=100.
 
@@ -158,7 +158,7 @@ def integrate(
     **kwargs,
 ) -> Tuple[float, jnp.ndarray]:
     """
-    Integrate dy/dt = fun(t, y) from t=t_start to t=t_end.
+    Integrate dy/dt = fun(t, y) over the time interval t_span.
 
     Args:
         fun: Callable right-hand side of system dy/dt = fun(t, y)
@@ -167,21 +167,27 @@ def integrate(
         stepper: Time-stepping scheme instance
         dt: Time step size
 
-    For implicit methods, the following keyword arguments are available:
-        tol: Convergence tolerance in the Newton-Raphson iterations.
-            Default: 1e-6.
-        maxiter: Maximum number of Newton-Raphson iterations. Default: 50.
-        jvp: Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
-            Computes the action of the Jacobian ∂f/∂y on a vector v.
-            If None, defaults to JAX's automatic differentiation (`jax.jvp`). 
-        jac: Evaluates the Jacobian at (t, y), returning a dense matrix.
-            If provided, systems are solved directly 
-            with `jax.numpy.linalg.solve`)
-        linsolver: Linear solver used inside the Newton-Raphson method.
+    Other Parameters:
+        tol (float): Convergence tolerance in the Newton-Raphson iterations.
+            Default: 1e-6. Only used for implicit methods.
+        maxiter (int): Maximum number of Newton-Raphson iterations.
+            Default: 50. Only used for implicit methods.
+        jvp (Callable, optional): Computes the Jacobian of `fun` w.r.t. y acting on a vector v.
+            If provided, must be function with signature (t, y, v) -> J*v.
+            If None, defaults to JAX's automatic differentiation (`jax.jvp`).
+            Only used for implicit methods.
+        jac (Callable, optional): Evaluate the Jacobian of `fun` w.r.t. at y.
+            If provided, must be a function with signature (t, y) -> J
+            where J is a dense matrix and linear systems are solved directly.
+            Only used for implicit methods.
+        linsolver (Callable, optional): Linear solver used inside the Newton-Raphson method.
             Required for matrix-free (jvp) mode.
             Default: GMRES with tol=1e-6 and maxiter=100.
+            Only used for implicit methods.
 
-    Keyword arguments passed to explicit time-steppers are ignored.
+    Note:
+        Parameters in "Other Parameters" are only used for implicit methods
+        and are ignored for explicit time-steppers.
 
     Returns:
         t_final: Final time
@@ -209,9 +215,7 @@ def solve_ivp(
     **options,
 ) -> Tuple[jnp.ndarray, jnp.ndarray]:
     """
-    Solve an initial value problem for a system of ODEs.
-
-    Solves the initial value problem dy/dt = fun(t, y) with y(t0) = y0.
+    Integrate dy/dt = fun(t, y) over the time interval t_span.
 
     Args:
         fun: Right-hand side function with signature (t, y) -> dydt
@@ -221,25 +225,32 @@ def solve_ivp(
         t_eval: Times at which to store the computed solution.
             If None, returns only the initial and final states.
             Must be sorted and lie within t_span.
+            Warning: Storing states at intermediate steps triggers 
+                recompilation and worsens performance.
         dt: Time step size for integration. Default: 0.01
         verbose: Print progress information
 
-    For implicit methods, the following keyword arguments are available:
-        tol: Convergence tolerance in Newton-Raphson iterations.
-            Default: 1e-6.
-        maxiter: Maximum number of Newton-Raphson iterations.
-            Default: 50.
-        jvp: Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
-            Computes the action of the Jacobian ∂f/∂y on a vector v.
-            If None, defaults to JAX's automatic differentiation (`jax.jvp`). 
-        jac: Evaluates the Jacobian at (t, y), returning a dense matrix.
-            If provided, systems are solved directly 
-            with `jax.numpy.linalg.solve`)
-        linsolver: Linear solver used inside the Newton-Raphson method.
+    Other Parameters:
+        tol (float): Convergence tolerance in Newton-Raphson iterations.
+            Default: 1e-6. Only used for implicit methods.
+        maxiter (int): Maximum number of Newton-Raphson iterations.
+            Default: 50. Only used for implicit methods.
+        jvp (Callable, optional): Computes the Jacobian of `fun` w.r.t. y acting on a vector v.
+            If provided, must be function with signature (t, y, v) -> J*v.
+            If None, defaults to JAX's automatic differentiation (`jax.jvp`).
+            Only used for implicit methods.
+        jac (Callable, optional): Evaluate the Jacobian of `fun` w.r.t. at y.
+            If provided, must be a function with signature (t, y) -> J
+            where J is a dense matrix and linear systems are solved directly.
+            Only used for implicit methods.
+        linsolver (Callable, optional): Linear solver used inside the Newton-Raphson method.
             Required for matrix-free (jvp) mode.
             Default: GMRES with tol=1e-6 and maxiter=100.
+            Only used for implicit methods.
 
-    Keyword arguments passed to explicit time-steppers are ignored.
+    Note:
+        Parameters in "Other Parameters" are only used for implicit methods
+        and are ignored for explicit time-steppers.
 
     Returns:
         t: Array of time points, shape (n_points,)

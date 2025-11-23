@@ -8,7 +8,7 @@ This module provides:
 """
 
 # Core integration functions
-from .solve_ivp import solve_ivp, integrate
+from .solve import solve_ivp, integrate
 
 # Time-stepping schemes
 from .timesteppers import ForwardEuler, RK4, BackwardEuler

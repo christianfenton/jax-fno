@@ -1,0 +1,42 @@
+site_name: JAX-FNO
+site_description: Fourier Neural Operators implemented in JAX/Flax
+repo_url: https://github.com/christianfenton/jax-fno
+repo_name: christianfenton/jax-fno
+
+theme:
+  name: material
+
+plugins:
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            show_root_heading: true
+            show_object_full_path: false
+            show_source: true            # optional
+            heading_level: 1
+            docstring_style: google
+            merge_init_into_class: false
+
+markdown_extensions:
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - admonition
+  - attr_list
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - javascripts/mathjax.js
+  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+
+nav:
+  - Home: index.md
+  - Tutorials:
+    - Solving the heat equation: tutorials/solving_heat_equation.md
+    - Training an FNO: tutorials/learning_antiderivative.md
+  - API Reference:
+    - Operators: api/operators.md
+    - Solver: api/solver.md

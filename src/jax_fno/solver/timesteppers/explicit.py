@@ -23,7 +23,7 @@ class ExplicitStepper(AbstractStepper):
         Advance the solution y from t to t+dt.
 
         Args:
-            fun: Right-hand side of system dy/dt = f(t, y)
+            fun: Right-hand side of system dydt = f(t, y)
             t: Current time
             y: Current solution at time t
             dt: Time step size
@@ -39,7 +39,10 @@ class ForwardEuler(ExplicitStepper):
     Forward Euler method.
 
     Discretisation:
-        dy/dt = f(t, y) --> (y_{n+1} - y_n) / dt = f(t_n, y_n)
+    $$
+    \\frac{\\partial y}{\\partial t} \\rightarrow 
+    (y_{n+1} - y_n) / dt = f(t_n, y_n)
+    $$
     """
 
     @staticmethod
@@ -52,10 +55,13 @@ class ForwardEuler(ExplicitStepper):
         """
         Perform a single Forward Euler step.
 
-        Computes y_{n+1} = y_n + dt * f(t_n, y_n).
+        Computes 
+        $$
+        y_{n+1} = y_n + dt * f(t_n, y_n).
+        $$
 
         Args:
-            fun: Right-hand side of system dy/dt = f(t, y)
+            fun: Right-hand side of system dydt = f(t, y)
             t: Current time
             y: Current solution
             dt: Time step size

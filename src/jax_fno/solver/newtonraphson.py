@@ -16,16 +16,18 @@ def newton_raphson(
     """
     Solve the non-linear system R(y) = 0 using a Newton-Raphson method.
 
-    Iterative update: y <-- y - J^{-1}(y) * R(y)
+    Iterative update:
+    $$y \\leftarrow y - J^{-1}(y) * R(y)$$
 
-    Supports both dense Jacobian (direct solve) and matrix-free JVP (iterative solve).
+    Supports both dense Jacobian (direct solve) and matrix-free JVP 
+    (iterative solve).
 
     Args:
         y0: Initial guess
         R: A function returning the residual R(y)
-        jac_or_jvp: Either:
-            - Dense mode: Jacobian function y -> J(y) (matrix)
-            - Matrix-free mode: JVP function (y, v) -> J(y) * v
+        jac_or_jvp: Can be either:
+            - Dense mode: A function with signature y -> J(y)
+            - Matrix-free mode: A function with signature (y, v) -> J(y) * v
         linsolver: Linear solver for matrix-free mode: (J_op, rhs) -> solution
             Required when dense=False, ignored when dense=True
         tol: Convergence tolerance

@@ -1,9 +1,13 @@
 venv/
 .venv/
+
 dev/
-.pytest_cache
+site/
 htmlcov/
 .coverage
+
+.pytest_cache
 *__pycache__
+
 CLAUDE.md
 .claude

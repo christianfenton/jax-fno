@@ -69,13 +69,21 @@ class BackwardEuler(ImplicitStepper):
     Backward Euler time-stepping scheme.
 
     Discretisation:
-        dy/dt = f(t, y) --> (y_{n+1} - y_n) / dt = f(t_{n+1}, y_{n+1})
+    $$
+    \\frac{\\partial y}{\\partial t} \\rightarrow 
+    \\frac{y_{n+1} - y_n}{\\delta t} = f(t_{n+1}, y_{n+1})
+    $$
 
     Residual:
-        R(y_{n+1}) = y_{n+1} - y_n - dt * f(t_{n+1}, y_{n+1})
+    $$
+    R(y_{n+1}) = y_{n+1} - y_n - \\delta t f(t_{n+1}, y_{n+1})
+    $$
 
     Jacobian:
-        J = ∂R/∂y_{n+1} = I - dt * ∂f/∂y(t_{n+1}, y_{n+1})
+    $$
+    J = \\frac{\\partial R}{\\partial y_{n+1}} 
+    = I - \\delta t \\frac{\\partial f(t_{n+1}, y_{n+1})}{\\partial y}
+    $$
     """
 
     @staticmethod
@@ -109,15 +117,15 @@ class BackwardEuler(ImplicitStepper):
         """
         Function factory for a matrix-free Jacobian-vector product.
 
-        Jacobian of residual: J = I - dt * ∂f/∂y
+        Jacobian: $J = I - \\delta t * \\frac{\\partial f}{\\partial y}$
 
         Args:
-            jvp: Jacobian-vector product function (t, y, v) -> (∂f/∂y)*v
+            jvp: Jacobian-vector product function (t, y, v) -> (dfdy)*v
             t_prev: Time at previous step
             dt: Time step size
 
         Returns:
-            Function (y, v) -> J(y) * v = v - dt * (∂f/∂y)*v
+            A function with signature (y, v) -> J_y * v
         """
         t_next = t_prev + dt
         return lambda y, v: v - dt * jvp(t_next, y, v)
@@ -131,7 +139,7 @@ class BackwardEuler(ImplicitStepper):
         """
         Function factory for dense Jacobian matrix.
 
-        Jacobian of residual: J = I - dt * ∂f/∂y
+        Jacobian: $J = I - \\delta t * \\frac{\\partial f}{\\partial y}$
 
         Args:
             jac: Jacobian matrix function (t, y) -> ∂f/∂y
@@ -139,7 +147,7 @@ class BackwardEuler(ImplicitStepper):
             dt: Time step size
 
         Returns:
-            Function y -> J(y) = I - dt * ∂f/∂y(t_{n+1}, y)
+            A function with signature y -> J_y
         """
         t_next = t_prev + dt
         return lambda y: jnp.eye(y.size) - dt * jac(t_next, y)
@@ -164,11 +172,14 @@ class BackwardEuler(ImplicitStepper):
         """
         Perform a backward Euler step.
 
-        Solves: y_{n+1} - y_n - dt * f(t_{n+1}, y_{n+1}) = 0
-        for y_{n+1} using Newton-Raphson method.
+        Solves
+        $$
+        y_{n+1} - y_n - \\delta t f(t_{n+1}, y_{n+1}) = 0
+        $$
+        for $y_{n+1}$ using a Newton-Raphson method.
 
         Args:
-            fun: Right-hand side of system dy/dt = f(t, y)
+            fun: Right-hand side of system dydt = f(t, y)
             t: Current time
             y: Current solution at time t
             dt: Time step size
@@ -176,8 +187,8 @@ class BackwardEuler(ImplicitStepper):
         Kwargs:
             tol: Convergence tolerance for Newton-Raphson method
             maxiter: Maximum number of Newton-Raphson iterations
-            jvp: Jacobian-vector product function (t, y, v) -> (∂f/∂y)*v
-            jac: Jacobian matrix function (t, y) -> ∂f/∂y (dense)
+            jvp: Jacobian-vector product function (t, y, v) -> dfdy*v
+            jac: Jacobian matrix function (t, y) -> dfdy (dense)
             linsolver: Linear solver
 
         Returns:
