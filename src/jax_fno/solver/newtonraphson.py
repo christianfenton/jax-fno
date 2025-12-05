@@ -131,8 +131,12 @@ class NewtonRaphson:
                 )
             return None
 
-        jax.pure_callback(
-            warn_callback, None, niters, self.maxiter, jnp.linalg.norm(r_final)
+        # jax.pure_callback(
+        #     warn_callback, None, niters, self.maxiter, jnp.linalg.norm(r_final)
+        # )
+        
+        jax.debug.callback(
+            warn_callback, niters, self.maxiter, jnp.linalg.norm(r_final)
         )
 
         return y_final
