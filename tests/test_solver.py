@@ -30,7 +30,7 @@ class TestSolver:
         y0 = jnp.array([0.5, 0.5, 0.5, 0.5])
 
         # Solve with BackwardEuler and custom JVP
-        method = BackwardEuler(jvp=jvp, nl_solver=NewtonRaphson(tol=1e-10))
+        method = BackwardEuler(jvp=jvp, root_finder=NewtonRaphson(tol=1e-10))
         t, y = solve_ivp(fun, (0.0, 10.0), y0, method, dt=0.1)
 
         y_final = y[-1]
@@ -55,7 +55,7 @@ class TestSolver:
         y0 = jnp.array([0.5, 0.5, 0.5, 0.5])
 
         # Solve with BackwardEuler and autodiff (no explicit JVP)
-        method = BackwardEuler(nl_solver=NewtonRaphson(tol=1e-10))
+        method = BackwardEuler(root_finder=NewtonRaphson(tol=1e-10))
         t, y = solve_ivp(fun, (0.0, 10.0), y0, method, dt=0.1)
 
         y_final = y[-1]
@@ -83,7 +83,7 @@ class TestSolver:
         y0 = jnp.array([0.5, 0.5, 0.5, 0.5])
 
         # Solve with BackwardEuler and dense Jacobian
-        method = BackwardEuler(nl_solver=NewtonRaphson(tol=1e-10), jac=jac)
+        method = BackwardEuler(root_finder=NewtonRaphson(tol=1e-10), jac=jac)
         t, y = solve_ivp(fun, (0.0, 10.0), y0, method, dt=0.1)
 
         y_final = y[-1]
@@ -115,7 +115,7 @@ class TestSolver:
             fun,
             (0.0, 2.0),
             y0,
-            BackwardEuler(nl_solver=NewtonRaphson(tol=1e-10)),
+            BackwardEuler(root_finder=NewtonRaphson(tol=1e-10)),
             t_eval=t_eval,
             dt=dt,
         )
