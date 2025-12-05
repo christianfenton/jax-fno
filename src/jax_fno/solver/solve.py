@@ -1,122 +1,78 @@
 import time
-
-import jax
-import jax.numpy as jnp
 from typing import Callable, Tuple, Optional
 
+import jax
+from jax import Array
+import jax.numpy as jnp
+
 from .timesteppers.base import AbstractStepper
-from .timesteppers.explicit import ExplicitStepper
-from .timesteppers.implicit import ImplicitStepper
-from .linearsolver import default_linear_solver
 
-
-def _integrate_explicit(
-    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
+def integrate(
+    fun: Callable,
     t_span: Tuple[float, float],
-    y0: jnp.ndarray,
-    stepper: ExplicitStepper,
+    y0: Array,
+    method: AbstractStepper,
     dt: float,
-) -> Tuple[jnp.ndarray, float]:
+    args: tuple = ()
+) -> Tuple[float, Array]:
     """
-    Time-integration with explicit stepping schemes.
+    Integrate dy/dt = fun(t, y, *args) over the time interval t_span.
 
     Args:
-        fun: Right-hand side of the system dy/dt = fun(t, y)
+        fun: Callable right-hand side of system dy/dt = fun(t, y, *args)
         t_span: (t_start, t_end) time interval
         y0: Initial condition
-        stepper: Integration method to use (ExplicitStepper instance)
+        method: Time-stepping method instance (e.g., RK4(), BackwardEuler())
         dt: Time step size
-
-    Returns:
-        y_final: Final solution
-        t_final: Final time
-    """
-    t_start, t_end = t_span
-
-    def cond_fn(carry):
-        t, y = carry
-        return t < t_end
-
-    def body_fn(carry):
-        t, y = carry
-        # Adjust final step to hit t_end exactly
-        dt_step = jnp.maximum(0.0, jnp.minimum(dt, t_end - t))
-        y_next = stepper.step(fun, t, y, dt_step)
-        t_next = t + dt_step
-        return (t_next, y_next)
-
-    t_final, y_final = jax.lax.while_loop(cond_fn, body_fn, (t_start, y0))
-    return y_final, t_final
-
-
-def _integrate_implicit(
-    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
-    t_span: Tuple[float, float],
-    y0: jnp.ndarray,
-    stepper: ImplicitStepper,
-    dt: float,
-    **stepper_kwargs,
-) -> Tuple[float, jnp.ndarray]:
-    """
-    Time-integration with implicit stepping schemes.
-
-    Args:
-        fun: Right-hand side of the system dy/dt = fun(t, y)
-        t_span: (t_start, t_end) time interval
-        y0: Initial condition
-        stepper: Implicit time-stepping scheme
-        dt: Time step size
-
-    Other Parameters:
-        tol (float): Convergence tolerance in Newton-Raphson iterations.
-            Default: 1e-6.
-        maxiter (int): Maximum number of Newton-Raphson iterations.
-            Default: 50.
-        jvp (Callable, optional): Jacobian-vector product with signature (t, y, v) -> (∂f/∂y)*v.
-            Computes the action of the Jacobian ∂f/∂y on a vector v.
-            If None, defaults to JAX's automatic differentiation (`jax.jvp`).
-        jac (Callable, optional): Evaluates the Jacobian at (t, y), returning a dense matrix.
-            If provided, systems are solved directly
-            with `jax.numpy.linalg.solve`)
-        linsolver (Callable, optional): Linear solver used inside the Newton-Raphson method.
-            Required for matrix-free (jvp) mode.
-            Default: GMRES with tol=1e-6 and maxiter=100.
+        args: Additional arguments to pass to fun (and jvp/jac if provided)
 
     Returns:
         t_final: Final time
         y_final: Solution at t_end
+
+    Example usage:
+    ```python
+    import jax.numpy as jnp
+    from jax_fno.solver import integrate, RK4
+
+    # Define ODE: dy/dt = -k*y
+    def fun(t, y, k):
+        return -k * y
+
+    # Solve with args
+    y0 = jnp.array([1.0])
+    t_span = (0.0, 2.0)
+    k = 0.5
+
+    t, y = integrate(fun, t_span, y0, RK4(), dt=0.01, args=(k,))
+    ```
+
+    Example usage with an implicit method and user-defined parameters:
+    ```python
+    import jax.numpy as jnp
+    from jax_fno.solver import integrate, NewtonRaphson, GMRES, BackwardEuler
+
+    # Define ODE: dy/dt = -k*y
+    def fun(t, y, k):
+        return -k * y
+
+    # Create linear solver
+    linsolver = GMRES(tol=1e-6, maxiter=20)
+
+    # Create non-linear solver
+    root_finder = NewtonRaphson(linsolver=linsolver, tol=1e-5, maxiter=50)
+
+    # Choose integration method
+    method = BackwardEuler(root_finder=root_finder)
+
+    # Solve
+    y0 = jnp.array([1.0])
+    t_span = (0.0, 2.0)
+    k = 0.5
+    t, y = integrate(fun, t_span, y0, method, dt=0.01, args=(k,))
+    ```
     """
-    allowed_kwargs = ["tol", "maxiter", "linsolver", "jvp", "jac"]
-    for k in stepper_kwargs.keys():
-        if k not in allowed_kwargs:
-            raise ValueError(
-                f"Unexpected keyword argument '{k}'. "
-                f"Valid options are: {', '.join(allowed_kwargs)}."
-            )
-
     t_start, t_end = t_span
-
-    # Get optional arguments
-    tol = stepper_kwargs.get("tol", 1e-6)
-    maxiter = stepper_kwargs.get("maxiter", 50)
-    jac = stepper_kwargs.get("jac", None)
-    jvp = stepper_kwargs.get("jvp", None)
-
-    # Set up Jacobian (either dense or matrix-free)
-    if jac is None and jvp is None:
-        # Default: use JAX automatic differentiation for JVP
-        def jvp_default(
-            t: float, y: jnp.ndarray, v: jnp.ndarray
-        ) -> jnp.ndarray:
-            """Compute (∂f/∂y)*v using automatic differentiation."""
-            return jax.jvp(lambda y_: fun(t, y_), (y,), (v,))[1]
-
-        jvp = jvp_default
-
-    # Get linear solver (only needed for matrix-free mode)
-    linsolver = stepper_kwargs.get("linsolver", None)
-    if jac is None and linsolver is None:
-        linsolver = default_linear_solver()
 
     def cond_fn(carry):
         t, y = carry
@@ -126,19 +82,9 @@ def _integrate_implicit(
         t, y = carry
 
         # Adjust final step to hit t_end exactly
-        dt_step = jnp.maximum(0.0, jnp.minimum(dt, t_end - t))
+        dt_step = jax.lax.max(0.0, jax.lax.min(dt, t_end - t))
 
-        y_next = stepper.step(
-            fun,
-            t,
-            y,
-            dt_step,
-            jvp=jvp,
-            jac=jac,
-            linsolver=linsolver,
-            tol=tol,
-            maxiter=maxiter,
-        )
+        y_next = method.step(fun, t, y, dt_step, args)
 
         t_next = t + dt_step
 
@@ -149,108 +95,32 @@ def _integrate_implicit(
     return t_final, y_final
 
 
-def integrate(
-    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
-    t_span: Tuple[float, float],
-    y0: jnp.ndarray,
-    stepper: AbstractStepper,
-    dt: float,
-    **kwargs,
-) -> Tuple[float, jnp.ndarray]:
-    """
-    Integrate dy/dt = fun(t, y) over the time interval t_span.
-
-    Args:
-        fun: Callable right-hand side of system dy/dt = fun(t, y)
-        t_span: (t_start, t_end) time interval
-        y0: Initial condition
-        stepper: Time-stepping scheme instance
-        dt: Time step size
-
-    Other Parameters:
-        tol (float): Convergence tolerance in the Newton-Raphson iterations.
-            Default: 1e-6. Only used for implicit methods.
-        maxiter (int): Maximum number of Newton-Raphson iterations.
-            Default: 50. Only used for implicit methods.
-        jvp (Callable, optional): Computes the Jacobian of `fun` w.r.t. y acting on a vector v.
-            If provided, must be function with signature (t, y, v) -> J*v.
-            If None, defaults to JAX's automatic differentiation (`jax.jvp`).
-            Only used for implicit methods.
-        jac (Callable, optional): Evaluate the Jacobian of `fun` w.r.t. at y.
-            If provided, must be a function with signature (t, y) -> J
-            where J is a dense matrix and linear systems are solved directly.
-            Only used for implicit methods.
-        linsolver (Callable, optional): Linear solver used inside the Newton-Raphson method.
-            Required for matrix-free (jvp) mode.
-            Default: GMRES with tol=1e-6 and maxiter=100.
-            Only used for implicit methods.
-
-    Note:
-        Parameters in "Other Parameters" are only used for implicit methods
-        and are ignored for explicit time-steppers.
-
-    Returns:
-        t_final: Final time
-        y_final: Solution at t_end
-    """
-    if isinstance(stepper, ExplicitStepper):
-        return _integrate_explicit(fun, t_span, y0, stepper, dt)
-    elif isinstance(stepper, ImplicitStepper):
-        return _integrate_implicit(fun, t_span, y0, stepper, dt, **kwargs)
-    else:
-        raise ValueError(
-            f"Unknown stepper type: {type(stepper)}. "
-            f"Expected ExplicitStepper or ImplicitStepper instance."
-        )
-
-
 def solve_ivp(
-    fun: Callable[[float, jnp.ndarray], jnp.ndarray],
+    fun: Callable,
     t_span: Tuple[float, float],
-    y0: jnp.ndarray,
-    stepper: AbstractStepper,
-    t_eval: Optional[jnp.ndarray] = None,
+    y0: Array,
+    method: AbstractStepper,
+    t_eval: Optional[Array] = None,
     dt: float = 0.01,
-    verbose: bool = False,
-    **options,
-) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    args: tuple = (),
+    verbose: bool = False
+) -> Tuple[Array, Array]:
     """
-    Integrate dy/dt = fun(t, y) over the time interval t_span.
+    Integrate dy/dt = fun(t, y, *args) over the time interval t_span.
 
     Args:
-        fun: Right-hand side function with signature (t, y) -> dydt
+        fun: Right-hand side function with signature (t, y, *args) -> dydt
         t_span: (t_start, t_end) time interval
         y0: Initial condition
-        stepper: Time-stepping method (e.g., RK4(), BackwardEuler())
+        method: Time-stepping method instance (e.g., RK4(), BackwardEuler())
         t_eval: Times at which to store the computed solution.
             If None, returns only the initial and final states.
             Must be sorted and lie within t_span.
-            Warning: Storing states at intermediate steps triggers 
+            Warning: Storing states at intermediate steps triggers
                 recompilation and worsens performance.
         dt: Time step size for integration. Default: 0.01
+        args: Additional arguments to pass to fun (and jvp/jac if provided)
         verbose: Print progress information
-
-    Other Parameters:
-        tol (float): Convergence tolerance in Newton-Raphson iterations.
-            Default: 1e-6. Only used for implicit methods.
-        maxiter (int): Maximum number of Newton-Raphson iterations.
-            Default: 50. Only used for implicit methods.
-        jvp (Callable, optional): Computes the Jacobian of `fun` w.r.t. y acting on a vector v.
-            If provided, must be function with signature (t, y, v) -> J*v.
-            If None, defaults to JAX's automatic differentiation (`jax.jvp`).
-            Only used for implicit methods.
-        jac (Callable, optional): Evaluate the Jacobian of `fun` w.r.t. at y.
-            If provided, must be a function with signature (t, y) -> J
-            where J is a dense matrix and linear systems are solved directly.
-            Only used for implicit methods.
-        linsolver (Callable, optional): Linear solver used inside the Newton-Raphson method.
-            Required for matrix-free (jvp) mode.
-            Default: GMRES with tol=1e-6 and maxiter=100.
-            Only used for implicit methods.
-
-    Note:
-        Parameters in "Other Parameters" are only used for implicit methods
-        and are ignored for explicit time-steppers.
 
     Returns:
         t: Array of time points, shape (n_points,)
@@ -261,33 +131,17 @@ def solve_ivp(
     import jax.numpy as jnp
     from jax_fno.solver import solve_ivp, RK4
 
-    # Define ODE: dy/dt = -y
-    def fun(t, y):
-        return -y
+    # Define ODE: dy/dt = -k*y
+    def fun(t, y, k):
+        return -k * y
 
-    # Solve
+    # Solve with args
     y0 = jnp.array([1.0])
     t_span = (0.0, 2.0)
     t_eval = jnp.linspace(0, 2, 5)
+    k = 0.5
 
-    t, y = solve_ivp(fun, t_span, y0, method=RK4(), t_eval=t_eval, dt=0.01)
-    ```
-
-    Example with implicit method and dense Jacobian:
-    ```python
-    from jax_fno.solver import BackwardEuler
-
-    # Define Jacobian matrix
-    def jac(t, y):
-        return jnp.array([[-1.0]])  # ∂f/∂y for f(t,y) = -y
-
-    t, y = solve_ivp(
-        fun, t_span, y0,
-        method=BackwardEuler(),
-        t_eval=t_eval,
-        dt=0.01,
-        jac=jac  # Use dense Jacobian with direct solve
-    )
+    t, y = solve_ivp(fun, t_span, y0, RK4(), t_eval=t_eval, dt=0.01, args=(k,))
     ```
     """
     t_start, t_end = t_span
@@ -311,7 +165,7 @@ def solve_ivp(
     n_steps_total = int(jnp.ceil((t_end - t_start) / dt))
 
     if verbose:
-        method_name = type(stepper).__name__
+        method_name = type(method).__name__
         print(f"Solving with {method_name}")
         print(
             f"Time: [{t_start}, {t_end}], dt={dt}, "
@@ -327,11 +181,9 @@ def solve_ivp(
     y = y0
 
     for i in range(len(t_eval) - 1):
-        t_chunk_start = t_eval[i]
-        t_chunk_end = t_eval[i + 1]
-        t, y = integrate(
-            fun, (t_chunk_start, t_chunk_end), y, stepper, dt, **options
-        )
+        t_i = float(t_eval[i])
+        t_ip1 = float(t_eval[i + 1])
+        t, y = integrate(fun, (t_i, t_ip1), y, method, dt, args)
         t_save.append(t)
         y_save.append(y)
 

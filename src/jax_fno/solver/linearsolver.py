@@ -1,91 +1,174 @@
-from dataclasses import dataclass
-from typing import Callable
+"""
+Linear solvers used in implicit time-stepping methods.
+"""
 
+from dataclasses import dataclass
+from typing import Protocol, Callable, Union
+
+from jax import Array
 import jax.numpy as jnp
 import jax.scipy.sparse.linalg as jax_sparse
 
 
-@dataclass(frozen=True)
-class LinearSolverConfig:
+class LinearSolverProtocol(Protocol):
     """
-    Configuration for linear solver used within Newton-Raphson iterations.
+    Protocol for linear solvers.
+
+    Any JAX-friendly object with a .solve(A, b) method matching this
+    signature can be used as a linear solver in implicit methods.
+    """
+
+    def solve(
+        self, A: Union[Callable[[Array], Array], Array], b: Array
+    ) -> Array:
+        """
+        Solve the linear system A*x = b.
+
+        Args:
+            A: Either a dense matrix OR a linear operator (x -> A*x)
+            b: Right-hand side vector
+
+        Returns:
+            Solution vector x such that A*x ≈ b
+        """
+        ...
+
+
+@dataclass(frozen=True)
+class GMRES:
+    """
+    Generalised Minimal Residual (GMRES).
+
+    Dispatches to `jax.scipy.sparse.linalg.gmres`.
+    Suitable for general non-symmetric systems.
 
     Attributes:
-        method: Linear solver method (iterative only, for matrix-free Jacobians)
-            - 'gmres': Generalised minimal residuals (default, robust)
-            - 'cg': Conjugate gradients (for symmetric positive definite systems)
-            - 'bicgstab': Stabilised biconjugate gradients (for non-symmetric systems)
-        tol: Convergence tolerance for iterative solver
-        maxiter: Maximum iterations for iterative solver
+        tol: Convergence tolerance for residual norm
+        maxiter: Maximum number of iterations
     """
 
-    method: str = "gmres"
     tol: float = 1e-6
     maxiter: int = 100
 
-    def __post_init__(self):
-        valid_methods = {"gmres", "cg", "bicgstab"}
-        if self.method not in valid_methods:
-            raise ValueError(
-                f"Invalid linear solver method '{self.method}'. "
-                f"Must be one of {valid_methods}"
+    def solve(
+        self, A: Union[Callable[[Array], Array], Array], b: Array
+    ) -> Array:
+        """
+        Solve A*x = b using GMRES.
+
+        Args:
+            A: Either a dense matrix or linear operator (x -> A*x)
+            b: Right-hand side vector
+
+        Returns:
+            Approximate solution x
+        """
+        solution, info = jax_sparse.gmres(
+            A, b, tol=self.tol, maxiter=self.maxiter
+        )
+        return solution
+
+
+@dataclass(frozen=True)
+class CG:
+    """
+    Conjugate Gradients (CG).
+
+    Dispatches to `jax.scipy.sparse.linalg.cg`.
+    Only suitable for symmetric and positive-definite systems.
+
+    Attributes:
+        tol: Convergence tolerance for residual norm
+        maxiter: Maximum number of iterations
+    """
+
+    tol: float = 1e-6
+    maxiter: int = 100
+
+    def solve(
+        self, A: Union[Callable[[Array], Array], Array], b: Array
+    ) -> Array:
+        """
+        Solve A*x = b.
+
+        Args:
+            A: Either a dense matrix or linear operator (x -> A*x)
+            b: Right-hand side vector
+
+        Returns:
+            Approximate solution x
+        """
+        solution, info = jax_sparse.cg(
+            A, b, tol=self.tol, maxiter=self.maxiter
+        )
+        return solution
+
+
+@dataclass(frozen=True)
+class BiCGStab:
+    """
+    Stabilised Biconjugate Gradients (BiCGStab).
+
+    Dispatches to `jax.scipy.sparse.linalg.bicgstab`.
+    Suitable for non-symmetric systems.
+
+    Attributes:
+        tol: Convergence tolerance for residual norm
+        maxiter: Maximum number of iterations
+    """
+
+    tol: float = 1e-6
+    maxiter: int = 100
+
+    def solve(
+        self, A: Union[Callable[[Array], Array], Array], b: Array
+    ) -> Array:
+        """
+        Solve A*x = b.
+
+        Args:
+            A: Either a dense matrix or linear operator (x -> A*x)
+            b: Right-hand side vector
+
+        Returns:
+            Approximate solution x
+        """
+        solution, info = jax_sparse.bicgstab(
+            A, b, tol=self.tol, maxiter=self.maxiter
+        )
+        return solution
+
+
+@dataclass(frozen=True)
+class DirectSolve:
+    """
+    Direct solver for linear systems.
+
+    Dispatches to `jax.numpy.linalg.solve`.
+    Only suitable for small systems where the Jacobian is provided explicitly.
+    """
+
+    def solve(
+        self, A: Union[Callable[[Array], Array], Array], b: Array
+    ) -> Array:
+        """
+        Solve A*x = b.
+
+        Args:
+            A: Dense Jacobian matrix
+            b: Right-hand side vector
+
+        Returns:
+            Solution x
+
+        Raises:
+            TypeError: If A is a callable (linear operator) instead of a matrix
+        """
+        if callable(A):
+            raise TypeError(
+                "DirectSolve requires a dense matrix, not a linear operator. "
+                "Please provide the Jacobian as a dense matrix (jac_fn), "
+                "or use an iterative solver (GMRES, CG, BiCGStab)."
             )
 
-
-# TODO: add callbacks in iterative solvers to warn about non-convergence
-def dispatch_linear_solver(
-    config: LinearSolverConfig,
-) -> Callable[[Callable, jnp.ndarray], jnp.ndarray]:
-    """
-    Function factory for a matrix-free iterative linear solver.
-
-    Args:
-        config: Linear solver configuration
-
-    Returns:
-        Solver function with signature: (jvp_operator, rhs) -> solution
-    """
-    if config.method == "gmres":
-
-        def gmres_solve(jvp_fn, rhs):
-            solution, _ = jax_sparse.gmres(
-                jvp_fn, rhs, tol=config.tol, maxiter=config.maxiter
-            )
-            return solution
-
-        return gmres_solve
-
-    elif config.method == "cg":
-
-        def cg_solve(jvp_fn, rhs):
-            solution, _ = jax_sparse.cg(
-                jvp_fn, rhs, tol=config.tol, maxiter=config.maxiter
-            )
-            return solution
-
-        return cg_solve
-
-    elif config.method == "bicgstab":
-
-        def bicgstab_solve(jvp_fn, rhs):
-            solution, _ = jax_sparse.bicgstab(
-                jvp_fn, rhs, tol=config.tol, maxiter=config.maxiter
-            )
-            return solution
-
-        return bicgstab_solve
-
-    else:
-        raise ValueError(f"Unknown linear solver method: {config.method}")
-
-
-def default_linear_solver():
-    """
-    Default linear solver for use inside Newton-Raphson iterations.
-
-    Default Settings:
-        method: 'gmres'
-        tol: 1e-6
-        maxiter: 100
-    """
-    return dispatch_linear_solver(LinearSolverConfig())
+        return jnp.linalg.solve(A, b)

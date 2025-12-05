@@ -1,83 +1,138 @@
-from typing import Callable, Optional
+"""
+Root-finding algorithms used in implicit time-stepping methods.
+"""
+
+from dataclasses import dataclass, field
+from typing import Protocol, Callable, Optional
 
 import jax
+from jax import Array
 import jax.numpy as jnp
 
+from .linearsolver import LinearSolverProtocol, GMRES
 
-def newton_raphson(
-    y0: jnp.ndarray,
-    R: Callable[[jnp.ndarray], jnp.ndarray],
-    jac_or_jvp: Callable,
-    linsolver: Optional[Callable[[Callable, jnp.ndarray], jnp.ndarray]],
-    tol: float,
-    maxiter: int,
-    dense: bool = False,
-) -> jnp.ndarray:
+
+class RootFindingProtocol(Protocol):
     """
-    Solve the non-linear system R(y) = 0 using a Newton-Raphson method.
+    Protocol for root-finding algorithms.
 
-    Iterative update:
-    $$y \\leftarrow y - J^{-1}(y) * R(y)$$
-
-    Supports both dense Jacobian (direct solve) and matrix-free JVP 
-    (iterative solve).
-
-    Args:
-        y0: Initial guess
-        R: A function returning the residual R(y)
-        jac_or_jvp: Can be either:
-            - Dense mode: A function with signature y -> J(y)
-            - Matrix-free mode: A function with signature (y, v) -> J(y) * v
-        linsolver: Linear solver for matrix-free mode: (J_op, rhs) -> solution
-            Required when dense=False, ignored when dense=True
-        tol: Convergence tolerance
-        maxiter: Maximum number of iterations
-        dense: If True, use dense Jacobian with direct solve.
-               If False, use JVP with iterative solve.
-
-    Returns:
-        Final solution y
+    Any JAX-friendly object with a .solve() method matching this signature
+    can be used as a root-finding algorithm in implicit time integration methods.
     """
 
-    y_k = y0
-    r_k = R(y_k)
-    state0 = (y_k, r_k, 0)
+    def solve(
+        self,
+        residual_fn: Callable[[Array], Array],
+        y_guess: Array,
+        jvp_fn: Optional[Callable[[Array, Array], Array]] = None,
+        jac_fn: Optional[Callable[[Array], Array]] = None,
+    ) -> Array:
+        """
+        Find the root of residual_fn(y) = 0.
 
-    if dense:
-        # Dense Jacobian path - use direct solve
-        def body_fun(state):
-            y_k, r_k, k = state
-            J_k = jac_or_jvp(y_k)  # Get dense Jacobian matrix
-            delta = jnp.linalg.solve(J_k, -r_k)  # Direct solve
-            y_kp1 = y_k + delta
-            r_kp1 = R(y_kp1)
-            return (y_kp1, r_kp1, k + 1)
-    else:
-        # Matrix-free JVP path - use iterative solve
-        if linsolver is None:
-            raise ValueError("linsolver must be provided when dense=False")
+        Args:
+            residual_fn: Residual function R(y) to find root of.
+            y_guess: Initial guess for the solution.
+            jvp_fn: Optional Jacobian-vector product with
+                signature (y, v) -> J(y)*v. Used in matrix-free mode.
+            jac_fn: Optional dense Jacobian function with
+                signature y -> J(y). Used in direct solve mode.
 
-        def body_fun(state):
-            y_k, r_k, k = state
-            delta = linsolver(lambda v: jac_or_jvp(y_k, v), -r_k)
-            y_kp1 = y_k + delta
-            r_kp1 = R(y_kp1)
-            return (y_kp1, r_kp1, k + 1)
+        Returns:
+            Solution y.
+        """
+        ...
 
-    def cond_fun(state):
-        _, r_k, k = state
-        return (jnp.linalg.norm(r_k) > tol) & (k < maxiter)
 
-    y_final, _, niters = jax.lax.while_loop(cond_fun, body_fun, state0)
+@dataclass(frozen=True)
+class NewtonRaphson:
+    """
+    Newton-Raphson root-finding algorithm.
 
-    def callback(iters, maxiter):
-        if iters >= maxiter:
-            print(
-                "Newton-Raphson method did not converge "
-                + f"within {int(maxiter)} iterations."
+    Iterative update: $y \\leftarrow y - J^{-1}(y) R(y)$
+
+    Attributes:
+        tol: Convergence tolerance for residual norm
+        maxiter: Maximum number of Newton-Raphson iterations
+        linsolver: Linear solver for inner iterations
+            Default: GMRES (iterative)
+    """
+
+    tol: float = 1e-6
+    maxiter: int = 50
+    linsolver: LinearSolverProtocol = field(default_factory=GMRES)
+
+    def solve(
+        self,
+        residual_fn: Callable[[Array], Array],
+        y_guess: Array,
+        jvp_fn: Optional[Callable[[Array, Array], Array]] = None,
+        jac_fn: Optional[Callable[[Array], Array]] = None,
+    ) -> Array:
+        """
+        Find the root of residual_fn(y) = 0 using Newton-Raphson method.
+
+        Args:
+            residual_fn: Residual function R(y)
+            y_guess: Initial guess
+            jvp_fn: Matrix-free Jacobian-vector product with
+                signature (y, v) -> J(y)*v
+            jac_fn: Function returning a dense Jacobian matrix with
+                signature y -> J(y)
+
+        Returns:
+            Solution y
+        """
+        if (jac_fn is not None) and (jvp_fn is not None):
+            raise ValueError(
+                """
+                Both `jvp_fn` and `jac_fn` were provided.
+                Only one of these arguments can be given at a time.
+                """
             )
-        return None
 
-    jax.pure_callback(callback, None, niters, maxiter)
+        y_k = y_guess
+        r_k = residual_fn(y_k)
+        state0 = (y_k, r_k, 0)
 
-    return y_final
+        if jac_fn is not None:
+            # Dense mode
+            def body_fun(state):
+                y_k, r_k, k = state
+                delta = self.linsolver.solve(jac_fn(y_k), -r_k)
+                y_kp1 = y_k + delta
+                r_kp1 = residual_fn(y_kp1)
+                return (y_kp1, r_kp1, k + 1)
+        elif jvp_fn is not None:
+            # Matrix-free mode
+            def body_fun(state):
+                y_k, r_k, k = state
+                delta = self.linsolver.solve(lambda v: jvp_fn(y_k, v), -r_k)
+                y_kp1 = y_k + delta
+                r_kp1 = residual_fn(y_kp1)
+                return (y_kp1, r_kp1, k + 1)
+        else:
+            raise ValueError("Must provide either jvp_fn or jac_fn")
+
+        def cond_fun(state):
+            _, r_k, k = state
+            return (jnp.linalg.norm(r_k) > self.tol) & (k < self.maxiter)
+
+        y_final, r_final, niters = jax.lax.while_loop(
+            cond_fun, body_fun, state0
+        )
+
+        def warn_callback(iters, maxiter, residual_norm):
+            if iters >= maxiter:
+                print(
+                    f"""WARNING: Newton-Raphson did not converge 
+                    within {int(maxiter)} iterations. """
+                    + f"Final residual norm: {float(residual_norm):.2e}"
+                )
+            return None
+
+        jax.pure_callback(
+            warn_callback, None, niters, self.maxiter, jnp.linalg.norm(r_final)
+        )
+
+        return y_final

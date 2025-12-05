@@ -99,14 +99,6 @@ t_span = (1.0, 10.0)  # (start_time, end_time)
 x = jnp.linspace(h, L - h, n, endpoint=True)
 ```
 
-Create the RHS function with fixed parameters:
-
-```python
-fun = lambda t, u: heat_rhs_dirichlet(
-    t, u, D, bc_values[0], bc_values[1], h
-)
-```
-
 Define the initial condition:
 
 ```python
@@ -120,14 +112,15 @@ y0 = gaussian_ic(x, t_span[0], D, L)
 Solve using an implicit method:
 
 ```python
-from jax_fno import solver
+from jax_fno.solver import integrate, BackwardEuler
 
-t_final, y_final = solver.integrate(
-    fun,
+t_final, y_final = integrate(
+    heat_rhs_dirichlet,
     t_span,
     y0,
     dt=1e-1,
-    stepper=solver.BackwardEuler()
+    method=BackwardEuler(),
+    args=(D, bc_values[0], bc_values[1], h)
 )
 ```
 

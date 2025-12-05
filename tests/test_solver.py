@@ -4,8 +4,7 @@ import pytest
 import jax
 import jax.numpy as jnp
 
-from jax_fno.solver import solve_ivp
-from jax_fno.solver.timesteppers.implicit import BackwardEuler
+from jax_fno.solver import solve_ivp, BackwardEuler, NewtonRaphson
 
 
 class TestSolver:
@@ -31,9 +30,8 @@ class TestSolver:
         y0 = jnp.array([0.5, 0.5, 0.5, 0.5])
 
         # Solve with BackwardEuler and custom JVP
-        t, y = solve_ivp(
-            fun, (0.0, 10.0), y0, BackwardEuler(), dt=0.1, tol=1e-10, jvp=jvp
-        )
+        method = BackwardEuler(jvp=jvp, nl_solver=NewtonRaphson(tol=1e-10))
+        t, y = solve_ivp(fun, (0.0, 10.0), y0, method, dt=0.1)
 
         y_final = y[-1]
         expected = jnp.full_like(y0, jnp.sqrt(2.0))
@@ -57,9 +55,8 @@ class TestSolver:
         y0 = jnp.array([0.5, 0.5, 0.5, 0.5])
 
         # Solve with BackwardEuler and autodiff (no explicit JVP)
-        t, y = solve_ivp(
-            fun, (0.0, 10.0), y0, BackwardEuler(), dt=0.1, tol=1e-10
-        )
+        method = BackwardEuler(nl_solver=NewtonRaphson(tol=1e-10))
+        t, y = solve_ivp(fun, (0.0, 10.0), y0, method, dt=0.1)
 
         y_final = y[-1]
         expected = jnp.full_like(y0, jnp.sqrt(2.0))
@@ -86,9 +83,8 @@ class TestSolver:
         y0 = jnp.array([0.5, 0.5, 0.5, 0.5])
 
         # Solve with BackwardEuler and dense Jacobian
-        t, y = solve_ivp(
-            fun, (0.0, 10.0), y0, BackwardEuler(), dt=0.1, tol=1e-10, jac=jac
-        )
+        method = BackwardEuler(nl_solver=NewtonRaphson(tol=1e-10), jac=jac)
+        t, y = solve_ivp(fun, (0.0, 10.0), y0, method, dt=0.1)
 
         y_final = y[-1]
         expected = jnp.full_like(y0, jnp.sqrt(2.0))
@@ -119,10 +115,9 @@ class TestSolver:
             fun,
             (0.0, 2.0),
             y0,
-            BackwardEuler(),
+            BackwardEuler(nl_solver=NewtonRaphson(tol=1e-10)),
             t_eval=t_eval,
             dt=dt,
-            tol=1e-10,
         )
 
         # Analytical solution: y(t) = exp(-t)
