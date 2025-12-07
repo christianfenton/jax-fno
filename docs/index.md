@@ -1,18 +1,17 @@
 # JAX-FNO: Fourier Neural Operators in JAX
 
-Welcome to the JAX-FNO documentation! This project provides JAX/Flax 
-implementations of Fourier Neural Operators (FNOs) for solving partial 
-differential equations (PDEs) along with time integration methods 
-written in JAX for easy, efficient training data generation.
+This project provides JAX/Flax implementations of Fourier neural operators 
+(FNOs) for solving partial differential equations (PDEs) along with time 
+integration methods written in JAX for easy, efficient training data generation.
 
 ## Overview
 
 **JAX-FNO** is organised into two main modules:
 
-- **Fourier Neural Operators** (`jax_fno.operators`): FNO architectures 
-    that learn PDE solution mappings
+- **Fourier neural operators** (`jax_fno.operators`): FNO architectures 
+    that learn PDE solution operators
 - **Initial value problem (IVP) solver** (`jax_fno.solver`): Integration 
-    methods for data generation
+    methods for easy, efficient training data generation
 
 ## Installation
 

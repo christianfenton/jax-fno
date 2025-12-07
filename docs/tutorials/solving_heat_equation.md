@@ -1,9 +1,7 @@
 # Solving the heat equation in one dimension
 
 This tutorial demonstrates how to numerically solve an equation of the form
-$$
-\frac{\partial y}{\partial t} = f(t, y)
-$$
+$$ \frac{\partial y}{\partial t} = f(t, y) $$
 with the `jax_fno.solver` module. The basic
 workflow for interacting with the `jax_fno.fno.solver.integrate` and 
 `jax_fno.solver.solve_ivp` functions goes as follows:
@@ -16,35 +14,25 @@ workflow for interacting with the `jax_fno.fno.solver.integrate` and
 ## Problem statement
 
 The 1D heat equation is
-$$
-\frac{\partial y}{\partial t} = D \frac{\partial^2 y}{\partial x^2},
-$$
+$$ \frac{\partial y}{\partial t} = D \frac{\partial^2 y}{\partial x^2}, $$
 where $D$ is the diffusivity, $y$ is the temperature
 at the position $x$ and time $t$.
 
 We will solve this with Dirichlet boundary conditions
-$$
-y(t, x=0) = y(t, x=L) = 0,
-$$
+$$ y(t, x=0) = y(t, x=L) = 0, $$
 where $x=0$ and $x=L$ are the boundaries of the domain. 
 
 Starting from a Gaussian initial condition
-$$
-u(t=t_0, x) = \frac{1}{\sqrt{4 \pi D t_0}} \exp^{-x^2 / 4 D t_0},
-$$
+$$ u(t=t_0, x) = \frac{1}{\sqrt{4 \pi D t_0}} \exp^{-x^2 / 4 D t_0}, $$
 at time $t_0$, the diffusion equation has an analytical solution
-$$
-u(t=T, x) = \frac{1}{\sqrt{4 \pi D t}} \exp^{-x^2 / 4 D t}
-$$
+$$ u(t=T, x) = \frac{1}{\sqrt{4 \pi D t}} \exp^{-x^2 / 4 D t} $$
 at a later time $T \geq t_0$.
 
 ## Spatial discretisation
 
 A uniform finite difference discretisation of the domain 
 leads to interior grid points
-$$
-x_i = i h, \quad i = 1, \ldots, n
-$$
+$$ x_i = i h, \quad i = 1, \ldots, n $$
 where the grid spacing $h = L / (n + 1)$ and $n$ is the number of 
 interior grid points. We will enforce the boundary conditions by using 
 ghost points at the boundaries.
@@ -109,10 +97,19 @@ def gaussian_ic(x, t, D, L):
 y0 = gaussian_ic(x, t_span[0], D, L)
 ```
 
-Solve using an implicit method:
+Choose an integration scheme:
+```python
+from jax_fno.solver import BackwardEuler, NewtonRaphson, GMRES
+
+linsolver = GMRES(maxiter=50, tol=1e-6)
+root_finder = NewtonRaphson(tol=1e-6, maxiter=20, linsolver=linsolver)
+method = BackwardEuler(root_finder=root_finder)
+```
+
+Solve:
 
 ```python
-from jax_fno.solver import integrate, BackwardEuler
+from jax_fno.solver import integrate
 
 t_final, y_final = integrate(
     heat_rhs_dirichlet,

@@ -6,7 +6,7 @@ Time integration schemes for initial value problems written in JAX.
 from .solve import solve_ivp, integrate
 
 # Time-stepping schemes
-from .timesteppers import ForwardEuler, RK4, BackwardEuler
+from .timesteppers import ForwardEuler, RK4, BackwardEuler, AbstractStepper
 
 # Root-finding algorithms
 from .newtonraphson import NewtonRaphson, RootFindingProtocol
@@ -26,6 +26,7 @@ __all__ = [
     'solve_ivp',
 
     # Time-stepping methods
+    'AbstractStepper',
     'ForwardEuler',
     'RK4',
     'BackwardEuler',

@@ -42,6 +42,9 @@ class BackwardEuler(AbstractStepper):
             signature (t, y, v, *args) -> J*v.
         jac: Optional user-provided dense Jacobian with
             signature (t, y, *args) -> J.
+
+    If neither jvp nor jac are provided, the `step` method defaults to 
+    automatic differentiation with `jax.jvp`.
     """
 
     root_finder: RootFindingProtocol = field(default_factory=NewtonRaphson)

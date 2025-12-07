@@ -116,8 +116,6 @@ def solve_ivp(
         t_eval: Times at which to store the computed solution.
             If None, returns only the initial and final states.
             Must be sorted and lie within t_span.
-            Warning: Storing states at intermediate steps triggers
-                recompilation and worsens performance.
         dt: Time step size for integration. Default: 0.01
         args: Additional arguments to pass to fun (and jvp/jac if provided)
         verbose: Print progress information
@@ -173,29 +171,31 @@ def solve_ivp(
         )
         print(f"Evaluating at {len(t_eval)} time points")
 
-    start_time = time.time()
+    integrate_jit = jax.jit(integrate, static_argnames=['fun', 'method'])
 
-    # Integrate between consecutive evaluation points
+    # Integrate between consecutive evaluation points:
     y_save = [y0]
     t_save = [t_start]
     y = y0
 
+    start_wallclock = time.time()
+
     for i in range(len(t_eval) - 1):
         t_i = float(t_eval[i])
         t_ip1 = float(t_eval[i + 1])
-        t, y = integrate(fun, (t_i, t_ip1), y, method, dt, args)
+        t, y = integrate_jit(fun, (t_i, t_ip1), y, method, dt, args)
         t_save.append(t)
         y_save.append(y)
 
     t_arr = jnp.stack(t_save)
     y_arr = jnp.stack(y_save, axis=0)
 
-    elapsed_time = time.time() - start_time
+    elapsed_wallclock = time.time() - start_wallclock
 
     if verbose:
         print(
-            f"Completed in {elapsed_time:.3f}s "
-            f"({n_steps_total / elapsed_time:.1f} steps/s)"
+            f"Completed in {elapsed_wallclock:.3f}s "
+            f"({n_steps_total / elapsed_wallclock:.1f} steps/s)"
         )
 
     return t_arr, y_arr

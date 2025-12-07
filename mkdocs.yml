@@ -7,6 +7,7 @@ theme:
   name: material
 
 plugins:
+  - autorefs
   - mkdocstrings:
       handlers:
         python:
@@ -36,7 +37,9 @@ nav:
   - Home: index.md
   - Tutorials:
     - Solving the heat equation: tutorials/solving_heat_equation.md
-    - Training an FNO: tutorials/learning_antiderivative.md
+    - Learning an antiderivative operator: tutorials/learning_antiderivative.md
+  - User Guides:
+    - Solver Guide: guides/solver_guide.md
   - API Reference:
     - Operators: api/operators.md
     - Solver: api/solver.md

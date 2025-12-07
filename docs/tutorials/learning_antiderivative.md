@@ -5,23 +5,17 @@ to learn an antiderivative operator.
 
 ## Problem statement
 
-We'll train an FNO to learn the mapping $G: u \rightarrow v$, where
-$$
-v(x) = \frac{du}{dx}
-$$
+We'll train an FNO to learn the mapping $G : u \rightarrow v$, where
+$$ v(x) = \frac{du}{dx} $$
 for
-$$
-u(x) = \sin(\alpha x), \quad x \in [0, 2\pi], \quad \alpha \in [0.5, 1]
-$$
+$$ u(x) = \sin(\alpha x), \quad x \in [0, 2\pi], \quad \alpha \in [0.5, 1] $$
 and where $u$, $v$ have periodic boundary conditions.
 
 ## Spatial discretisation
 
 A uniform finite difference discretisation of the domain 
 leads to grid points
-$$
-x_i = i h, \quad i = 0, \ldots, n-1
-$$
+$$ x_i = i h, \quad i = 0, \ldots, n-1 $$
 where the grid spacing $h = L / n$ and $n$ is the number of 
 grid points. The periodic boundary conditions imply that $x_0$ = $x_n$.
 

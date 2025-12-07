@@ -16,7 +16,7 @@ class ForwardEuler(AbstractStepper):
     Discretisation:
     $$
     \\frac{\\partial y}{\\partial t} \\rightarrow
-    (y_{n+1} - y_n) / dt = f(t_n, y_n)
+    \\frac{(y_{n+1} - y_n)}{\\delta t} = f(t_n, y_n)
     $$
     """
 
