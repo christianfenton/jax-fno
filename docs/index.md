@@ -15,13 +15,36 @@ integration methods written in JAX for easy, efficient training data generation.
 
 ## Installation
 
-Clone this repository and install with 
-[Poetry](https://python-poetry.org/docs/):
+[Poetry](https://python-poetry.org/docs/) is recommended for installation.
 
+### Using Poetry
+
+Create a Poetry environment and add the package:
+
+With SSH:
 ```bash
-git clone https://github.com/christianfenton/jax-fno.git
-cd jax_fno
-poetry install
+poetry new my-project
+cd my-project
+poetry add git+ssh://git@github.com/christianfenton/jax-fno.git
+```
+
+With HTTPS:
+```bash
+poetry add git+https://github.com/christianfenton/jax-fno.git
+```
+
+### Using pip
+
+Alternatively, you can install directly with pip:
+
+With SSH:
+```bash
+pip install git+ssh://git@github.com/christianfenton/jax-fno.git
+```
+
+With HTTPS:
+```bash
+pip install git+https://github.com/christianfenton/jax-fno.git
 ```
 
 ## Getting started
