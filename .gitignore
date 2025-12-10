@@ -1,13 +1,17 @@
 venv/
 .venv/
 
-dev/
 site/
 htmlcov/
 .coverage
 
 .pytest_cache
 *__pycache__
+
+benchmarks/
+dev/
+data/
+notebooks/
 
 CLAUDE.md
 .claude
