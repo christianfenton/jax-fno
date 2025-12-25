@@ -1,5 +1,5 @@
 site_name: JAX-FNO
-site_description: Fourier Neural Operators implemented in JAX/Flax
+site_description: Fourier Neural Operators written in JAX/Flax
 repo_url: https://github.com/christianfenton/jax-fno
 repo_name: christianfenton/jax-fno
 
@@ -14,7 +14,7 @@ plugins:
           options:
             show_root_heading: true
             show_object_full_path: false
-            show_source: true            # optional
+            show_source: true
             heading_level: 1
             docstring_style: google
             merge_init_into_class: false
@@ -39,7 +39,7 @@ nav:
     - Solving the heat equation: tutorials/solving_heat_equation.md
     - Learning an antiderivative operator: tutorials/learning_antiderivative.md
   - User Guides:
-    - Solver Guide: guides/solver_guide.md
+    - Understanding the ODE integrator: guides/integrate_guide.md
   - API Reference:
-    - Operators: api/operators.md
-    - Solver: api/solver.md
+    - Learning (jax_fno.learn): api/learn_api.md
+    - Integration (jax_fno.integrate): api/integrate_api.md

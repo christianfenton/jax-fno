@@ -9,18 +9,19 @@ Main components:
 - solver: Time integration methods for data generation
 """
 
-from .operators import FNO1D, FourierLayer1D
+from .learn import FNO1D, FourierLayer1D
 
 # Time integration solvers
-from .solver import integrate, solve_ivp, RK4, ForwardEuler, BackwardEuler
+from .integrate import solve_ivp, solve_with_history, RK4, ForwardEuler, BackwardEuler
 
 __all__ = [
-    # FNO operators
+    # FNO layers and architectures
     "FNO1D",
     "FourierLayer1D",
-    # Time integration
-    "integrate",
+
+    # ODE integration methods
     "solve_ivp",
+    "solve_with_history",
     "RK4",
     "ForwardEuler",
     "BackwardEuler",

@@ -2,22 +2,23 @@
 Root-finding algorithms used in implicit time-stepping methods.
 """
 
+from abc import ABC
 from dataclasses import dataclass, field
-from typing import Protocol, Callable, Optional
+from typing import Callable, Optional
 
 import jax
 from jax import Array
 import jax.numpy as jnp
 
-from .linearsolver import LinearSolverProtocol, GMRES
+from .linsolvers import AbstractLinearSolver, GMRES
 
 
-class RootFindingProtocol(Protocol):
+@dataclass(frozen=True)
+class AbstractRootFinder(ABC):
     """
-    Protocol for root-finding algorithms.
-
-    Any JAX-friendly object with a .solve() method matching this signature
-    can be used as a root-finding algorithm in implicit time integration methods.
+    Base class for root finders.
+    
+    Inherited classes must be frozen dataclasses (JAX-compatible pytrees).
     """
 
     def solve(
@@ -45,7 +46,7 @@ class RootFindingProtocol(Protocol):
 
 
 @dataclass(frozen=True)
-class NewtonRaphson:
+class NewtonRaphson(AbstractRootFinder):
     """
     Newton-Raphson root-finding algorithm.
 
@@ -60,7 +61,7 @@ class NewtonRaphson:
 
     tol: float = 1e-6
     maxiter: int = 50
-    linsolver: LinearSolverProtocol = field(default_factory=GMRES)
+    linsolver: AbstractLinearSolver = field(default_factory=GMRES)
 
     def solve(
         self,
@@ -130,10 +131,6 @@ class NewtonRaphson:
                     + f"Final residual norm: {float(residual_norm):.2e}"
                 )
             return None
-
-        # jax.pure_callback(
-        #     warn_callback, None, niters, self.maxiter, jnp.linalg.norm(r_final)
-        # )
         
         jax.debug.callback(
             warn_callback, niters, self.maxiter, jnp.linalg.norm(r_final)

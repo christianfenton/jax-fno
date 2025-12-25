@@ -7,12 +7,12 @@ import jax.numpy as jnp
 
 from .timesteppers.base import AbstractStepper
 
-def integrate(
+def solve_ivp(
     fun: Callable,
     t_span: Tuple[float, float],
     y0: Array,
     method: AbstractStepper,
-    dt: float,
+    step_size: float,
     args: tuple = ()
 ) -> Tuple[float, Array]:
     """
@@ -23,7 +23,7 @@ def integrate(
         t_span: (t_start, t_end) time interval
         y0: Initial condition
         method: Time-stepping method instance (e.g., RK4(), BackwardEuler())
-        dt: Time step size
+        step_size: Time step size
         args: Additional arguments to pass to fun (and jvp/jac if provided)
 
     Returns:
@@ -33,7 +33,7 @@ def integrate(
     Example usage:
     ```python
     import jax.numpy as jnp
-    from jax_fno.solver import integrate, RK4
+    from jax_fno.integrate import solve_ivp, RK4
 
     # Define ODE: dy/dt = -k*y
     def fun(t, y, k):
@@ -44,13 +44,13 @@ def integrate(
     t_span = (0.0, 2.0)
     k = 0.5
 
-    t, y = integrate(fun, t_span, y0, RK4(), dt=0.01, args=(k,))
+    t, y = solve_ivp(fun, t_span, y0, RK4(), step_size=0.01, args=(k,))
     ```
 
     Example usage with an implicit method and user-defined parameters:
     ```python
     import jax.numpy as jnp
-    from jax_fno.solver import integrate, NewtonRaphson, GMRES, BackwardEuler
+    from jax_fno.integrate import solve_ivp, NewtonRaphson, GMRES, BackwardEuler
 
     # Define ODE: dy/dt = -k*y
     def fun(t, y, k):
@@ -69,7 +69,7 @@ def integrate(
     y0 = jnp.array([1.0])
     t_span = (0.0, 2.0)
     k = 0.5
-    t, y = integrate(fun, t_span, y0, method, dt=0.01, args=(k,))
+    t, y = solve_ivp(fun, t_span, y0, method, step_size=0.01, args=(k,))
     ```
     """
     t_start, t_end = t_span
@@ -82,11 +82,11 @@ def integrate(
         t, y = carry
 
         # Adjust final step to hit t_end exactly
-        dt_step = jax.lax.max(0.0, jax.lax.min(dt, t_end - t))
+        h = jax.lax.max(0.0, jax.lax.min(step_size, t_end - t))
 
-        y_next = method.step(fun, t, y, dt_step, args)
+        y_next = method.step(fun, t, y, h, args)
 
-        t_next = t + dt_step
+        t_next = t + h
 
         return (t_next, y_next)
 
@@ -95,28 +95,32 @@ def integrate(
     return t_final, y_final
 
 
-def solve_ivp(
+def solve_with_history(
     fun: Callable,
     t_span: Tuple[float, float],
     y0: Array,
     method: AbstractStepper,
+    step_size: float,
     t_eval: Optional[Array] = None,
-    dt: float = 0.01,
     args: tuple = (),
     verbose: bool = False
 ) -> Tuple[Array, Array]:
     """
     Integrate dy/dt = fun(t, y, *args) over the time interval t_span.
 
+    This function allows users to return intermediate states at times `t_eval`,
+    but is not compatible with JAX transformations. The integration is done in 
+    chunks by calling `solve_ivp`, where `solve_ivp` has been JIT-compiled.
+
     Args:
         fun: Right-hand side function with signature (t, y, *args) -> dydt
         t_span: (t_start, t_end) time interval
         y0: Initial condition
         method: Time-stepping method instance (e.g., RK4(), BackwardEuler())
+        step_size: Time step size for integration.
         t_eval: Times at which to store the computed solution.
             If None, returns only the initial and final states.
             Must be sorted and lie within t_span.
-        dt: Time step size for integration. Default: 0.01
         args: Additional arguments to pass to fun (and jvp/jac if provided)
         verbose: Print progress information
 
@@ -127,7 +131,7 @@ def solve_ivp(
     Example usage:
     ```python
     import jax.numpy as jnp
-    from jax_fno.solver import solve_ivp, RK4
+    from jax_fno.integrate import solve_with_history, RK4
 
     # Define ODE: dy/dt = -k*y
     def fun(t, y, k):
@@ -139,7 +143,9 @@ def solve_ivp(
     t_eval = jnp.linspace(0, 2, 5)
     k = 0.5
 
-    t, y = solve_ivp(fun, t_span, y0, RK4(), t_eval=t_eval, dt=0.01, args=(k,))
+    t, y = solve_with_history(
+        fun, t_span, y0, RK4(), step_size=0.01, t_eval=t_eval, args=(k,)
+    )
     ```
     """
     t_start, t_end = t_span
@@ -160,18 +166,18 @@ def solve_ivp(
         if t_eval[0] != t_start:
             t_eval = jnp.concatenate([jnp.array([t_start]), t_eval])
 
-    n_steps_total = int(jnp.ceil((t_end - t_start) / dt))
+    n_steps_total = int(jnp.ceil((t_end - t_start) / step_size))
 
     if verbose:
         method_name = type(method).__name__
         print(f"Solving with {method_name}")
         print(
-            f"Time: [{t_start}, {t_end}], dt={dt}, "
+            f"Time: [{t_start}, {t_end}], dt={step_size}, "
             f"~{n_steps_total} total steps"
         )
         print(f"Evaluating at {len(t_eval)} time points")
 
-    integrate_jit = jax.jit(integrate, static_argnames=['fun', 'method'])
+    integrate_jit = jax.jit(solve_ivp, static_argnames=['fun', 'method'])
 
     # Integrate between consecutive evaluation points:
     y_save = [y0]
@@ -183,7 +189,7 @@ def solve_ivp(
     for i in range(len(t_eval) - 1):
         t_i = float(t_eval[i])
         t_ip1 = float(t_eval[i + 1])
-        t, y = integrate_jit(fun, (t_i, t_ip1), y, method, dt, args)
+        t, y = integrate_jit(fun, (t_i, t_ip1), y, method, step_size, args)
         t_save.append(t)
         y_save.append(y)
 

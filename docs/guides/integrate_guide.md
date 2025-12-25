@@ -1,17 +1,17 @@
-# Understanding the solver
+# Understanding the ODE integrator
 
-The `jax_fno.solver` module provides JAX-compatible time integration methods 
+The `jax_fno.integrate` module provides JAX-compatible time integration methods 
 for solving initial value problems (IVPs). The solver performs temporal 
 discretisation and integration, while users need to handle spatial 
-discretisation in the themselves during setup.
+discretisation during setup.
 
 ## Quick start
 
 ```python
 import jax.numpy as jnp
-from jax_fno import solver
+from jax_fno.integrate import solve_ivp, RK4
 
-# 1. Define your discretized PDE as an ODE
+# 1. Define your discretised PDE as an ODE
 # NOTE: This must be written in a JAX-compatible (functionally pure) way
 def my_pde_rhs(t, y, args):
     """Right-hand side: dy/dt = f(t, y, ...)
@@ -25,20 +25,20 @@ def my_pde_rhs(t, y, args):
 y0 = ...
 
 # 3. Choose time-stepping method
-method = solver.RK4()
+method = RK4()
 
 # 4. Integrate
-t_final, y_final = solver.integrate(
+t_final, y_final = integrate.solve_ivp(
     my_pde_rhs,
     t_span=(0.0, 1.0),
     y0=y0,
     method=method,
-    dt=0.001,
+    step_size=0.001,
     args=(...,)
 )
 ```
 
-## Time-Stepping methods
+## Time-stepping methods
 
 ### Explicit methods
 
@@ -57,9 +57,9 @@ can allow much larger time steps for stiff problems.
 
 ```python
 from dataclasses import dataclass
-from jax import Array
 from typing import Callable
-from jax_fno.solver import AbstractStepper
+from jax import Array
+from jax_fno.integrate import AbstractStepper, solve_ivp
 
 @dataclass(frozen=True)
 class MyMethod(AbstractStepper):
@@ -69,51 +69,54 @@ class MyMethod(AbstractStepper):
         fun: Callable,
         t: Array,
         y: Array,
-        dt: Array,
+        h: Array,
         args: tuple = ()
     ) -> Array:
         """Advance one time step."""
         ...
 
-t, y = solver.integrate(fun, t_span, y0, MyMethod(), dt, args)
+t, y = solve_ivp(fun, t_span, y0, MyMethod(), step_size, args)
 ```
 
 ## Extending the root-finding algorithms
 
-Only one root-finding algorithm is 
-currently provided ([NewtonRaphson][jax_fno.solver.NewtonRaphson]), but users 
-can extend this by following the 
-[RootFindingProtocol][jax_fno.solver.RootFindingProtocol] protocol.
+Currently only [NewtonRaphson][jax_fno.integrate.NewtonRaphson] is provided
+as root-finding algorithm.
+
+Users can extend the root finders by writing their own implementation by
+inheriting from [AbstractRootFinder][jax_fno.integrate.AbstractRootFinder].
 
 ## Extending the linear solvers
 
-For the Newton-Raphson root-finding algorithm, a linear solver is used at each 
-iteration. The linear solvers currently available are 
-[GMRES][jax_fno.solver.GMRES], [CG][jax_fno.solver.CG], 
-[BiCGStab][jax_fno.solver.BiCGStab] and 
-[DirectSolve][jax_fno.solver.DirectSolve]. 
-Users can extend this by following the 
-[LinearSolverProtocol][jax_fno.solver.LinearSolverProtocol] protocol.
+The root-finders often use a linear solver as a subroutine.
+
+The linear solvers currently available are 
+[GMRES][jax_fno.integrate.GMRES], [CG][jax_fno.integrate.CG], 
+[BiCGStab][jax_fno.integrate.BiCGStab] and 
+[Direct][jax_fno.integrate.Direct].
+
+Users can extend the linear solvers by writing their own implementation and 
+inheriting from [AbstractLinearSolver][jax_fno.integrate.AbstractLinearSolver].
 
 ### JAX transformations
 
 As long as `fun` and `method` are JAX-compatible, 
-[integrate][jax_fno.solver.integrate] should support most JAX transformations, 
+[solve_ivp][jax_fno.integrate.solve_ivp] should support most JAX transformations, 
 however these features have not been properly tested yet.
 
 JIT Compilation:
 
 ```python
 import jax
-from jax_fno.solver import integrate
+from jax_fno.integrate import solve_ivp
 
 # JIT-compile the entire integration
-integrate_jit = jax.jit(
-    integrate(fun, t_span, y0, method, dt, args),
+solve_jit = jax.jit(
+    solve_ivp(fun, t_span, y0, method, h, args),
     static_argnames=['fun', 'method']
 )
 
-y_final = integrate_jit(y0)
+y_final = solve_jit(y0)
 ```
 
 Vectorisation (batching):
@@ -122,9 +125,9 @@ Vectorisation (batching):
 # Integrate multiple initial conditions in parallel
 y0_batch = jnp.stack([y0_1, y0_2, y0_3])  # (batch, n)
 
-integrate_batch = jax.vmap(
-    lambda y_: integrate(fun, t_span, y_, method, dt, args)[1]
+solve_batch = jax.vmap(
+    lambda y_: solve_ivp(fun, t_span, y_, method, dt, args)[1]
 )
 
-y_final_batch = integrate_batch(y0_batch)  # (batch, n)
+y_final_batch = solve_batch(y0_batch)  # (batch, n)
 ```

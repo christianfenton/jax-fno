@@ -14,10 +14,8 @@ class ForwardEuler(AbstractStepper):
     Forward Euler method.
 
     Discretisation:
-    $$
-    \\frac{\\partial y}{\\partial t} \\rightarrow
-    \\frac{(y_{n+1} - y_n)}{\\delta t} = f(t_n, y_n)
-    $$
+    $$ \\frac{\\partial y}{\\partial t} \\rightarrow 
+    \\frac{(y_{n+1} - y_n)}{h} = f(t_n, y_n) $$
     """
 
     def step(
@@ -25,28 +23,25 @@ class ForwardEuler(AbstractStepper):
         fun: Callable,
         t: Array,
         y: Array,
-        dt: Array,
+        h: Array,
         args: tuple = ()
     ) -> Array:
         """
         Perform a single Forward Euler step.
 
-        Computes
-        $$
-        y_{n+1} = y_n + dt f(t_n, y_n, *args).
-        $$
+        Computes $$ y_{n+1} = y_n + h f(t_n, y_n, *args). $$
 
         Args:
             fun: Right-hand side of system dydt = f(t, y, *args).
             t: Current time. Type: 0-dimensional JAX array.
             y: Current solution.
-            dt: Time step size. Type: 0-dimensional JAX array.
+            h: Time step size. Type: 0-dimensional JAX array.
             args: Additional arguments to pass to fun.
 
         Returns:
-            Solution at t + dt.
+            Solution at t + h.
         """
-        return y + dt * fun(t, y, *args)
+        return y + h * fun(t, y, *args)
 
 
 @dataclass(frozen=True)
@@ -58,7 +53,7 @@ class RK4(AbstractStepper):
         fun: Callable,
         t: Array,
         y: Array,
-        dt: Array,
+        h: Array,
         args: tuple = ()
     ) -> Array:
         """
@@ -68,14 +63,14 @@ class RK4(AbstractStepper):
             fun: Right-hand side of system dy/dt = f(t, y, *args).
             t: Current time.
             y: Current solution.
-            dt: Time step size.
+            h: Time step size.
             args: Additional arguments to pass to fun.
 
         Returns:
-            Solution at t + dt.
+            Solution at t + h.
         """
         k1 = fun(t, y, *args)
-        k2 = fun(t + 0.5 * dt, y + 0.5 * dt * k1, *args)
-        k3 = fun(t + 0.5 * dt, y + 0.5 * dt * k2, *args)
-        k4 = fun(t + dt, y + dt * k3, *args)
-        return y + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)
+        k2 = fun(t + 0.5 * h, y + 0.5 * h * k1, *args)
+        k3 = fun(t + 0.5 * h, y + 0.5 * h * k2, *args)
+        k4 = fun(t + h, y + h * k3, *args)
+        return y + (h / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4)

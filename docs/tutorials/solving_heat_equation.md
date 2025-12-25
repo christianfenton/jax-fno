@@ -1,14 +1,11 @@
 # Solving the heat equation in one dimension
 
 This tutorial demonstrates how to numerically solve an equation of the form
-$$ \frac{\partial y}{\partial t} = f(t, y) $$
-with the `jax_fno.solver` module. The basic
-workflow for interacting with the `jax_fno.fno.solver.integrate` and 
-`jax_fno.solver.solve_ivp` functions goes as follows:
+$$ \frac{\partial y}{\partial t} = f(t, y) $$ using the `jax_fno.integrate` 
+module. This example demonstrates a typical workflow which goes as follows:
 
-1. Define the right-hand-side of your spatially discretised PDE with signature
-    `fun(t, y) -> dydt`
-2. Set an initial condition `y0`
+1. Define the (discretised) right-hand-side $f(t, y)$ of the ODE
+2. Set the initial condition $y_0$
 3. Choose a time-stepping method and integrate
 
 ## Problem statement
@@ -42,14 +39,15 @@ ghost points at the boundaries.
 Define the spatial discretisation:
 
 ```python
+import jax
 import jax.numpy as jnp
 
 def laplacian_dirichlet_1d(
-    u: jnp.ndarray, 
+    u: jax.Array, 
     bc_left: float, 
     bc_right: float, 
     dx: float
-) -> jnp.ndarray:
+) -> jax.Array:
     """
     Compute the Laplacian (second derivative) using finite differences.
     Assumes ghost points at the boundaries with Dirichlet conditions.
@@ -59,12 +57,12 @@ def laplacian_dirichlet_1d(
 
 def heat_rhs_dirichlet(
     t: float,
-    u: jnp.ndarray,
+    u: jax.Array,
     diffusivity: float,
     bc_left: float,
     bc_right: float,
     dx: float,
-) -> jnp.ndarray:
+) -> jax.Array:
     """Right-hand side of heat equation: du/dt = D d²u/dx²"""
     d2udx2 = laplacian_dirichlet_1d(u, bc_left, bc_right, dx)
     return diffusivity * d2udx2
@@ -74,11 +72,11 @@ Set the problem parameters:
 
 ```python
 # Physical parameters
-D = 2.0
-L = 100.0
-n = 128
-h = L / (n + 1)
-bc_values = (0.0, 0.0)
+D = 2.0  # diffusivity
+L = 100.0  # domain length
+n = 128  # number of grid points
+h = L / (n + 1)  # grid spacing
+bc_values = (0.0, 0.0)  # Dirichlet boundary condition values
 
 # Time span
 t_span = (1.0, 10.0)  # (start_time, end_time)
@@ -99,7 +97,7 @@ y0 = gaussian_ic(x, t_span[0], D, L)
 
 Choose an integration scheme:
 ```python
-from jax_fno.solver import BackwardEuler, NewtonRaphson, GMRES
+from jax_fno.integrate import BackwardEuler, NewtonRaphson, GMRES
 
 linsolver = GMRES(maxiter=50, tol=1e-6)
 root_finder = NewtonRaphson(tol=1e-6, maxiter=20, linsolver=linsolver)
@@ -109,14 +107,14 @@ method = BackwardEuler(root_finder=root_finder)
 Solve:
 
 ```python
-from jax_fno.solver import integrate
+from jax_fno.integrate import solve_ivp
 
-t_final, y_final = integrate(
+t_final, y_final = solve_ivp(
     heat_rhs_dirichlet,
     t_span,
     y0,
-    dt=1e-1,
     method=BackwardEuler(),
+    step_size=1e-1,
     args=(D, bc_values[0], bc_values[1], h)
 )
 ```

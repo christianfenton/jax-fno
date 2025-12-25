@@ -2,30 +2,33 @@
 Linear solvers used in implicit time-stepping methods.
 """
 
+from abc import ABC
 from dataclasses import dataclass
-from typing import Protocol, Callable, Union
+from typing import Callable, Union
 
 from jax import Array
 import jax.numpy as jnp
 import jax.scipy.sparse.linalg as jax_sparse
 
 
-class LinearSolverProtocol(Protocol):
+@dataclass(frozen=True)
+class AbstractLinearSolver(ABC):
     """
-    Protocol for linear solvers.
-
-    Any JAX-friendly object with a .solve(A, b) method matching this
-    signature can be used as a linear solver in implicit methods.
+    Base class for linear solvers.
+    
+    Inherited classes must be frozen dataclasses (JAX-compatible pytrees).
     """
 
     def solve(
-        self, A: Union[Callable[[Array], Array], Array], b: Array
+        self, 
+        A: Union[Callable[[Array], Array], Array], 
+        b: Array
     ) -> Array:
         """
         Solve the linear system A*x = b.
 
         Args:
-            A: Either a dense matrix OR a linear operator (x -> A*x)
+            A: Dense matrix or linear operator with signature x -> A*x
             b: Right-hand side vector
 
         Returns:
@@ -35,7 +38,7 @@ class LinearSolverProtocol(Protocol):
 
 
 @dataclass(frozen=True)
-class GMRES:
+class GMRES(AbstractLinearSolver):
     """
     Generalised Minimal Residual (GMRES).
 
@@ -51,13 +54,15 @@ class GMRES:
     maxiter: int = 100
 
     def solve(
-        self, A: Union[Callable[[Array], Array], Array], b: Array
+        self,
+        A: Union[Callable[[Array], Array], Array],
+        b: Array
     ) -> Array:
         """
         Solve A*x = b using GMRES.
 
         Args:
-            A: Either a dense matrix or linear operator (x -> A*x)
+            A: Dense matrix or linear operator with signature x -> A*x
             b: Right-hand side vector
 
         Returns:
@@ -70,7 +75,7 @@ class GMRES:
 
 
 @dataclass(frozen=True)
-class CG:
+class CG(AbstractLinearSolver):
     """
     Conjugate Gradients (CG).
 
@@ -86,13 +91,15 @@ class CG:
     maxiter: int = 100
 
     def solve(
-        self, A: Union[Callable[[Array], Array], Array], b: Array
+        self,
+        A: Union[Callable[[Array], Array], Array],
+        b: Array
     ) -> Array:
         """
         Solve A*x = b.
 
         Args:
-            A: Either a dense matrix or linear operator (x -> A*x)
+            A: Dense matrix or linear operator with signature x -> A*x
             b: Right-hand side vector
 
         Returns:
@@ -105,7 +112,7 @@ class CG:
 
 
 @dataclass(frozen=True)
-class BiCGStab:
+class BiCGStab(AbstractLinearSolver):
     """
     Stabilised Biconjugate Gradients (BiCGStab).
 
@@ -127,7 +134,7 @@ class BiCGStab:
         Solve A*x = b.
 
         Args:
-            A: Either a dense matrix or linear operator (x -> A*x)
+            A: Dense matrix or linear operator with signature x -> A*x
             b: Right-hand side vector
 
         Returns:
@@ -140,7 +147,7 @@ class BiCGStab:
 
 
 @dataclass(frozen=True)
-class DirectSolve:
+class Direct(AbstractLinearSolver):
     """
     Direct solver for linear systems.
 
@@ -149,13 +156,15 @@ class DirectSolve:
     """
 
     def solve(
-        self, A: Union[Callable[[Array], Array], Array], b: Array
+        self,
+        A: Union[Callable[[Array], Array], Array],
+        b: Array
     ) -> Array:
         """
         Solve A*x = b.
 
         Args:
-            A: Dense Jacobian matrix
+            A: Dense matrix
             b: Right-hand side vector
 
         Returns:

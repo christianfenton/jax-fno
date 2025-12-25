@@ -6,6 +6,7 @@ from typing import Callable
 
 import jax
 
+
 @dataclass(frozen=True)
 class AbstractStepper(ABC):
     """Base class for time-stepping schemes."""
@@ -15,7 +16,7 @@ class AbstractStepper(ABC):
         fun: Callable, 
         t: jax.Array, 
         y: jax.Array, 
-        dt: jax.Array, 
+        h: jax.Array, 
         args: tuple = ()
     ) -> jax.Array:
         """
@@ -25,10 +26,10 @@ class AbstractStepper(ABC):
             fun: Right-hand side of system dydt = f(t, y, *args).
             t: Current time. Type: 0-dimensional JAX array.
             y: Current solution.
-            dt: Time step size. Type: 0-dimensional JAX array.
+            h: Time step size. Type: 0-dimensional JAX array.
             args: Additional arguments to pass to fun.
 
         Returns:
-            Solution at t + dt.
+            Solution at t + h.
         """
         ...

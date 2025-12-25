@@ -1,17 +1,15 @@
 # JAX-FNO: Fourier Neural Operators in JAX
 
-This project provides JAX/Flax implementations of Fourier neural operators 
-(FNOs) for solving partial differential equations (PDEs) along with time 
-integration methods written in JAX for easy, efficient training data generation.
+This project provides Fourier neural operators (FNOs) for solving partial 
+differential equations (PDEs) and an ordinary differential equation (ODE) 
+integrator, all written in JAX/Flax.
 
 ## Overview
 
 **JAX-FNO** is organised into two main modules:
 
-- **Fourier neural operators** (`jax_fno.operators`): FNO architectures 
-    that learn PDE solution operators
-- **Initial value problem (IVP) solver** (`jax_fno.solver`): Integration 
-    methods for easy, efficient training data generation
+- **Learning** (`jax_fno.learn`): FNO architectures used to learn PDE solution operators
+- **Integration** (`jax_fno.integrate`): ODE integration methods
 
 ## Installation
 
@@ -51,7 +49,7 @@ pip install git+https://github.com/christianfenton/jax-fno.git
 
 To get started using the project, check out the tutorials:
 
-- **[Solving the heat equation with the IVP solver](tutorials/solving_heat_equation.md)**
+- **[Solving the heat equation](tutorials/solving_heat_equation.md)**
 - **[Learning an antiderivative operator](tutorials/learning_antiderivative.md)**
 
 ## Citations
@@ -67,8 +65,8 @@ The work in this project is based on
 Check out the source code on 
 [GitHub](https://github.com/christianfenton/jax-fno).
 
-## Future Plans
+## Future Works
 
-In the future, `jax_fno.solver.solve_ivp` should be adapted to match 
+In the future, `jax_fno.integrate.solve_ivp` should be adapted to match 
 [`scipy.integrate.solve_ivp`](https://docs.scipy.org/doc/scipy/reference/generated/scipy.integrate.solve_ivp.html)
 and added to [`jax.scipy.integrate`](https://docs.jax.dev/en/latest/jax.scipy.html#module-jax.scipy.integrate).

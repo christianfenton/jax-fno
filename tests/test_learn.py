@@ -2,7 +2,7 @@ import pytest
 import jax
 import jax.numpy as jnp
 from flax import nnx
-from jax_fno.operators import FourierLayer1D, FNO1D
+from jax_fno.learn import FourierLayer1D, FNO1D
 
 
 class TestFourierLayer1D:
@@ -18,7 +18,7 @@ class TestFourierLayer1D:
         n_modes = 12
 
         # Create layer
-        key = jax.random.key(42)
+        key = jax.random.key(0)
         layer = FourierLayer1D(
             key=key,
             channels_in=channels,
@@ -28,7 +28,7 @@ class TestFourierLayer1D:
 
         # Create test input (batch, channels, spatial)
         x = jax.random.normal(
-            jax.random.key(123), (batch_size, channels, n_points)
+            jax.random.key(0), (batch_size, channels, n_points)
         )
 
         # Forward pass
@@ -50,7 +50,7 @@ class TestFourierLayer1D:
         channels = 4
         n_modes = 8
 
-        key = jax.random.key(42)
+        key = jax.random.key(0)
         layer = FourierLayer1D(
             key=key,
             channels_in=channels,
@@ -60,7 +60,7 @@ class TestFourierLayer1D:
 
         # Create input (batch, channels, spatial)
         x = jax.random.normal(
-            jax.random.key(789), (batch_size, channels, n_points)
+            jax.random.key(0), (batch_size, channels, n_points)
         )
 
         # Define a simple loss function
@@ -74,10 +74,10 @@ class TestFourierLayer1D:
         # Check that gradients exist and are non-zero for all parameters
         grad_spectral = grads["spectral"]
         grad_linear = grads["linear"]
-        assert jnp.linalg.norm(grad_spectral["weights"].value) > 1e-8, (
+        assert jnp.linalg.norm(grad_spectral["weights"]) > 1e-8, (
             "Spectral gradients are too small"
         )
-        assert jnp.linalg.norm(grad_linear["weight"].value) > 1e-8, (
+        assert jnp.linalg.norm(grad_linear["weight"]) > 1e-8, (
             "Linear gradients are too small"
         )
 
@@ -91,7 +91,7 @@ class TestFourierLayer1D:
         ]
 
         for i, config in enumerate(configurations):
-            key = jax.random.key(42 + i)
+            key = jax.random.key(i)
             layer = FourierLayer1D(
                 key=key,
                 channels_in=config["channels"],
@@ -100,7 +100,7 @@ class TestFourierLayer1D:
             )
 
             x = jax.random.normal(
-                jax.random.key(100 + i),
+                jax.random.key(i),
                 (2, config["channels"], config["n_points"]),
             )
 
@@ -125,7 +125,7 @@ class TestFNO1D:
         n_layers = 2  # Small for testing
 
         # Create model
-        key = jax.random.key(42)
+        key = jax.random.key(0)
         model = FNO1D(
             key=key,
             input_dim=input_dim,
@@ -137,7 +137,7 @@ class TestFNO1D:
 
         # Create test input (batch, input_dim, spatial)
         x = jax.random.normal(
-            jax.random.key(123), (batch_size, input_dim, n_points)
+            jax.random.key(0), (batch_size, input_dim, n_points)
         )
 
         # Forward pass
