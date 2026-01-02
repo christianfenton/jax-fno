@@ -4,7 +4,7 @@ import pytest
 import jax.numpy as jnp
 
 from jax_fno.integrate.rootfinders import NewtonRaphson
-from jax_fno.integrate.linsolvers import GMRES, Direct
+from jax_fno.integrate.linsolvers import GMRES, DirectDense
 
 
 @pytest.fixture
@@ -31,11 +31,11 @@ class TestRootFinders:
     def test_newton_raphson_matrix_free(self, simple_nonlinear_system):
         root_finder = NewtonRaphson(tol=1e-6, maxiter=50, linsolver=GMRES())
         residual, jvp, _, y0, expected = simple_nonlinear_system
-        soln = root_finder.solve(residual, y0, jvp_fn=jvp)
+        soln = root_finder(residual, y0, jvp_fn=jvp)
         assert jnp.allclose(soln, expected, atol=1e-5, rtol=1e-5)
 
     def test_newton_raphson_dense_matrix(self, simple_nonlinear_system):
-        root_finder = NewtonRaphson(tol=1e-6, maxiter=50, linsolver=Direct())
+        root_finder = NewtonRaphson(tol=1e-6, maxiter=50, linsolver=DirectDense())
         residual, _, jac, y0, expected = simple_nonlinear_system
-        soln = root_finder.solve(residual, y0, jac_fn=jac)
+        soln = root_finder(residual, y0, jac_fn=jac)
         assert jnp.allclose(soln, expected, atol=1e-5, rtol=1e-5)

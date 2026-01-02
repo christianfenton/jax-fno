@@ -1,178 +1,73 @@
-"""
-Implicit time-stepping schemes.
-"""
-
-from dataclasses import dataclass, field
 from typing import Callable, Optional
-
+from flax import nnx
 import jax
-from jax import Array
 import jax.numpy as jnp
+from jax import Array
 
-from .base import AbstractStepper
-from ..rootfinders import AbstractRootFinder, NewtonRaphson
+from ..rootfinders import RootFinderProtocol, NewtonRaphson
 
 
-@dataclass(frozen=True)
-class BackwardEuler(AbstractStepper):
+class BackwardEuler(nnx.Module):
     """
-    Backward Euler time-stepping scheme.
+    Backward Euler time stepper.
 
     Discretisation:
-    $$ \\frac{\\partial y}{\\partial t} \\rightarrow
-    \\frac{y_{n+1} - y_n}{h} = f(t_{n+1}, y_{n+1}) $$
-
-    Residual:
-    $$ R(y_{n+1}) = y_{n+1} - y_n - h f(t_{n+1}, y_{n+1}) $$
-
-    Jacobian:
-    $$ J = \\frac{\\partial R}{\\partial y_{n+1}}
-    = I - h \\frac{\\partial f(t_{n+1}, y_{n+1})}{\\partial y} $$
-
-    Attributes:
-        root_finder: Root-finding algorithm for implicit equations.
-            Default: NewtonRaphson.
-        jvp: Optional user-provided Jacobian-vector product with
-            signature (t, y, v, *args) -> J*v.
-        jac: Optional user-provided dense Jacobian with
-            signature (t, y, *args) -> J.
-
-    If neither jvp nor jac are provided, the `step` method defaults to 
+        $$ \\frac{\\partial y}{\\partial t} \\rightarrow
+        \\frac{(y_{n+1} - y_n)}{h} = f(t_{n+1}, y_{n+1}) $$
+        
+    If neither jvp nor jac are provided, defaults to root-finding using
     automatic differentiation with `jax.jvp`.
     """
 
-    root_finder: AbstractRootFinder = field(default_factory=NewtonRaphson)
-    jvp: Optional[Callable] = None
-    jac: Optional[Callable] = None
-
-    @staticmethod
-    def make_residual(
-        fun: Callable,
-        t_prev: Array,
-        y_prev: Array,
-        h: Array,
-        args: tuple = (),
-    ) -> Callable[[Array], Array]:
-        """
-        Create residual function for a backward Euler scheme.
-
-        Residual: $R(y_{n+1}) = y_{n+1} - y_n - h f(t_{n+1}, y_{n+1}, \\cdot)$
-
-        Args:
-            fun: Right-hand side of system dy/dt = f(t, y, *args).
-            t_prev: Time at previous step. Type: 0-dimensional JAX array.
-            y_prev: Solution at previous time step.
-            h: Time step size. Type: 0-dimensional JAX array.
-            args: Additional arguments to pass to fun.
-
-        Returns:
-            A function with signature y -> R(y)
-        """
-        t_next = t_prev + h
-        return lambda y_np1: y_np1 - y_prev - h * fun(t_next, y_np1, *args)
-
-    @staticmethod
-    def make_jvp(
-        jvp: Callable, t_prev: Array, h: Array, args: tuple = ()
-    ) -> Callable[[Array, Array], Array]:
-        """
-        Function factory for a matrix-free Jacobian-vector product.
-
-        Jacobian: $J = I - h \\frac{\\partial f}{\\partial y}$
-
-        Args:
-            jvp: Jacobian-vector product, signature: (t, y, v, *args) -> (dfdy)*v
-            t_prev: Time at previous step. Type: 0-dimensional JAX array.
-            h: Time step size. Type: 0-dimensional JAX array
-            args: Additional arguments to pass to jvp
-
-        Returns:
-            A function with signature (y, v) -> J_y * v
-        """
-        t_next = t_prev + h
-        return lambda y, v: v - h * jvp(t_next, y, v, *args)
-
-    @staticmethod
-    def make_jacobian(
-        jac: Callable, t_prev: Array, h: Array, args: tuple = ()
-    ) -> Callable[[Array], Array]:
-        """
-        Function factory for dense Jacobian matrix.
-
-        Jacobian: $J = I - h \\frac{\\partial f}{\\partial y}$
-
-        Args:
-            jac: Jacobian matrix function (t, y, *args) -> ∂f/∂y
-            t_prev: Time at previous step. Type: 0-dimensional JAX array.
-            h: Time step size. Type: 0-dimensional JAX array.
-            args: Additional arguments to pass to jac
-
-        Returns:
-            A function with signature y -> J_y.
-        """
-        t_next = t_prev + h
-        return lambda y: jnp.eye(y.size) - h * jac(t_next, y, *args)
-
-    def step(
+    def __init__(
         self,
-        fun: Callable,
-        t: Array,
-        y: Array,
-        h: Array,
-        args: tuple = (),
-    ) -> Array:
-        """
-        Perform a backward Euler step.
+        root_finder: RootFinderProtocol = NewtonRaphson(),
+        jvp: Optional[Callable] = None,
+        jac: Optional[Callable] = None,
+    ):
+        self.root_finder = root_finder
+        self.jvp = jvp
+        self.jac = jac
 
-        Solves $$ y_{n+1} - y_n - h f(t_{n+1}, y_{n+1}, \\cdot) = 0 $$
-        for $y_{n+1}$ using a root-finding algorithm.
+    def _residual(self, fun, t, y, h, args):
+        return lambda y_np1: y_np1 - y - h * fun(t + h, y_np1, *args)
 
-        Args:
-            fun: Right-hand side of system dydt = f(t, y, *args).
-            t: Current time. Type: 0-dimensional JAX array.
-            y: Current solution at time t.
-            h: Time step size. Type: 0-dimensional JAX array.
-            args: Additional arguments to pass to fun, jvp, and jac.
+    def _build_linearisation(self, fun, t, h, args):
+        """Return (jac_fn, jvp_fn) for the Jacobian J_f = I - h * df/dy."""
 
-        Returns:
-            Solution at time t + h.
-        """
-        # Define residual function for this step
-        residual_fn = self.make_residual(fun, t, y, h, args)
+        # Case 1: explicit dense Jacobian supplied
+        if self.jac is not None:
+            def jac_fn(y):
+                return jnp.eye(y.size) - h * self.jac(t + h, y, *args)
+            return jac_fn, None
 
-        # Initial guess (forward Euler step)
-        y_guess = y + h * fun(t, y, *args)
+        # Case 2: matrix-free JVP supplied (preferred for large systems)
+        if self.jvp is not None:
+            def jvp_fn(y, v):
+                return v - h * self.jvp(t + h, y, v, *args)
+            return None, jvp_fn
 
-        # Prepare Jacobian functions
-        jac = self.jac
-        jvp = self.jvp
+        # Case 3: fall back to automatic differentiation
+        def jvp_autodiff(y, v):
+            _, df_v = jax.jvp(lambda y_: fun(t + h, y_, *args), (y,), (v,))
+            return v - h * df_v
 
-        # Default: use JAX's autodiff for JVP if neither jac nor jvp provided
-        if jac is None and jvp is None:
+        return None, jvp_autodiff
 
-            def jvp_autodiff(
-                t_inner: Array, y_inner: Array, v: Array, *args_inner
-            ) -> Array:
-                """Compute (∂f/∂y)*v using automatic differentiation."""
-                return jax.jvp(
-                    lambda y_: fun(t_inner, y_, *args_inner), (y_inner,), (v,)
-                )[1]
+    def step(self, fun, t: Array, y: Array, h: Array, args=()):
+        """Advance one backward Euler step."""
 
-            jvp = jvp_autodiff
+        # If using a spectral solver, construct diagonal symbol (1 - h s(k))
+        if hasattr(self.root_finder, 'linsolver'):
+            linsolver = self.root_finder.linsolver
+            if hasattr(linsolver, 'eigvals'):
+                linsolver.set_symbol(1.0 - h * linsolver.eigvals)
 
-        # Build Jacobian functions for the residual
-        jac_fn = None
-        jvp_fn = None
+        residual = self._residual(fun, t, y, h, args)
 
-        if jac is not None:
-            jac_fn = self.make_jacobian(jac, t, h, args)
+        # cheap forward Euler guess
+        y0 = y + h * fun(t, y, *args)
 
-        if jvp is not None:
-            jvp_fn = self.make_jvp(jvp, t, h, args)
+        jac_fn, jvp_fn = self._build_linearisation(fun, t, h, args)
 
-        # Solve nonlinear system using configured root-finding algorithm
-        y_next = self.root_finder.solve(
-            residual_fn, y_guess, jvp_fn=jvp_fn, jac_fn=jac_fn
-        )
-
-        return y_next
+        return self.root_finder(residual, y0, jac_fn=jac_fn, jvp_fn=jvp_fn)

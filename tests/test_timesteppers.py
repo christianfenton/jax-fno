@@ -9,9 +9,11 @@ from jax_fno.integrate import (
     BackwardEuler,
     NewtonRaphson,
     GMRES,
+    Spectral,
     solve_ivp,
 )
 
+from jax_fno.integrate.linsolvers import dst1, idst1
 
 def laplacian_dirichlet_1d(
     u: jnp.ndarray,
@@ -112,8 +114,7 @@ def heat_equation_setup():
 class TestExplicitMethods:
     """Test explicit time-stepping methods on the heat equation."""
 
-    def test_forward_euler_heat_equation(self, heat_equation_setup):
-        """Test Forward Euler on heat equation with analytical solution."""
+    def test_forward_euler(self, heat_equation_setup):
         setup = heat_equation_setup
         D = setup['D']
         L = setup['L']
@@ -149,8 +150,7 @@ class TestExplicitMethods:
         # Check that solution is close to analytical
         assert jnp.allclose(y_final, y_exact, atol=9*dt)
 
-    def test_rk4_heat_equation(self, heat_equation_setup):
-        """Test RK4 on heat equation with analytical solution."""
+    def test_rk4(self, heat_equation_setup):
         setup = heat_equation_setup
         D = setup['D']
         L = setup['L']
@@ -160,7 +160,7 @@ class TestExplicitMethods:
 
         # Time span
         t_start = 1.0
-        t_end = 2.0
+        t_end = 5.0
 
         # Compute time step size
         cfl = 0.2  # CFL number
@@ -190,8 +190,7 @@ class TestExplicitMethods:
 class TestImplicitMethods:
     """Test implicit time-stepping methods on the heat equation."""
 
-    def test_backward_euler_heat_equation(self, heat_equation_setup):
-        """Test Backward Euler on heat equation with analytical solution."""
+    def test_backward_euler_gmres(self, heat_equation_setup):
         setup = heat_equation_setup
         D = setup['D']
         L = setup['L']
@@ -201,10 +200,10 @@ class TestImplicitMethods:
 
         # Time span
         t_start = 1.0
-        t_end = 2.0
+        t_end = 5.0
 
         # Compute time step size
-        cfl = 0.2  # CFL number
+        cfl = 1.5  # CFL number
         dt = cfl * dx**2 / D
 
         # Initial condition
@@ -213,6 +212,49 @@ class TestImplicitMethods:
         # Configure implicit method
         linsolver = GMRES(tol=1e-8, maxiter=100)
         root_finder = NewtonRaphson(linsolver=linsolver, tol=1e-8, maxiter=20)
+        method = BackwardEuler(root_finder=root_finder)
+
+        # Solve using Backward Euler
+        t_final, y_final = solve_ivp(
+            heat_rhs_dirichlet,
+            (t_start, t_end),
+            y0,
+            method,
+            step_size=dt,
+            args=(D, bc_left, bc_right, dx)
+        )
+
+        # Compare with analytical solution
+        y_exact = gaussian_ic(x, t_end, D, L)
+
+        # Check that solution is close to analytical
+        assert jnp.allclose(y_final, y_exact, atol=9*dt)
+
+    def test_backward_euler_spectral(self, heat_equation_setup):
+        setup = heat_equation_setup
+        D = setup['D']
+        L = setup['L']
+        dx = setup['dx']
+        x = setup['x']
+        bc_left, bc_right = setup['bc_values']
+
+        # Time span
+        t_start = 1.0
+        t_end = 5.0
+
+        # Compute time step size
+        cfl = 1.5  # CFL number
+        dt = cfl * dx**2 / D
+
+        # Initial condition
+        y0 = gaussian_ic(x, t_start, D, L)
+
+        # Configure implicit method
+        n = len(x)
+        k = jnp.arange(1, n+1)
+        eigvals = -D * (4 / dx**2) * jnp.sin(jnp.pi * k / (2 * (n + 1)))**2
+        linsolver = Spectral(eigvals=eigvals, forward_transform=dst1, backward_transform=idst1)
+        root_finder = NewtonRaphson(linsolver=linsolver, tol=1e-8, maxiter=1)
         method = BackwardEuler(root_finder=root_finder)
 
         # Solve using Backward Euler

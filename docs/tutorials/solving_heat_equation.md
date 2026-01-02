@@ -113,7 +113,7 @@ t_final, y_final = solve_ivp(
     heat_rhs_dirichlet,
     t_span,
     y0,
-    method=BackwardEuler(),
+    method,
     step_size=1e-1,
     args=(D, bc_values[0], bc_values[1], h)
 )

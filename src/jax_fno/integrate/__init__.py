@@ -1,44 +1,50 @@
-"""
-Time integration schemes for initial value problems written in JAX.
-"""
+"""Time integration schemes for initial value problems written in JAX."""
 
 # Solver interfaces
 from .solve import solve_with_history, solve_ivp
 
 # Time-stepping schemes
-from .timesteppers import ForwardEuler, RK4, BackwardEuler, AbstractStepper
+from .timesteppers import (
+    StepperProtocol,
+    ForwardEuler,
+    RK4,
+    BackwardEuler,
+)
 
 # Root-finding algorithms
-from .rootfinders import AbstractRootFinder, NewtonRaphson
+from .rootfinders import RootFinderProtocol, NewtonRaphson
 
 # Linear solvers
 from .linsolvers import (
-    AbstractLinearSolver,
+    LinearSolverProtocol,
+    # Direct solvers
+    DirectDense,
+    # Krylov solvers
     GMRES,
     CG,
     BiCGStab,
-    Direct,
+    # Spectral solvers
+    Spectral,
 )
 
 __all__ = [
     # Solver interfaces
-    'solve_ivp',
-    'solve_with_history',
-
+    "solve_ivp",
+    "solve_with_history",
+    # Protocols
+    "StepperProtocol",
+    "RootFinderProtocol",
+    "LinearSolverProtocol",
     # Time-stepping methods
-    'AbstractStepper',
-    'ForwardEuler',
-    'RK4',
-    'BackwardEuler',
-
+    "ForwardEuler",
+    "RK4",
+    "BackwardEuler",
     # Root-finding algorithms
-    'AbstractRootFinder',
-    'NewtonRaphson',
-
+    "NewtonRaphson",
     # Linear solvers
-    'AbstractLinearSolver',
-    'GMRES',
-    'CG',
-    'BiCGStab',
-    'Direct',
+    "DirectDense",
+    "GMRES",
+    "CG",
+    "BiCGStab",
+    "Spectral",
 ]

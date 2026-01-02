@@ -1,17 +1,17 @@
 """Time-stepping schemes for initial value problems."""
 
-from .base import AbstractStepper
+from .protocol import StepperProtocol
 from .explicit import ForwardEuler, RK4
 from .implicit import BackwardEuler
 
 __all__ = [
-    # Base class
-    'AbstractStepper',
+    # Protocol
+    "StepperProtocol",
 
     # Explicit methods
-    'ForwardEuler',
-    'RK4',
+    "ForwardEuler",
+    "RK4",
 
     # Implicit methods
-    'BackwardEuler',
+    "BackwardEuler",
 ]

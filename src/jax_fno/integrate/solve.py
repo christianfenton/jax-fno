@@ -5,13 +5,14 @@ import jax
 from jax import Array
 import jax.numpy as jnp
 
-from .timesteppers.base import AbstractStepper
+from .timesteppers import StepperProtocol
+
 
 def solve_ivp(
     fun: Callable,
     t_span: Tuple[float, float],
     y0: Array,
-    method: AbstractStepper,
+    method: StepperProtocol,
     step_size: float,
     args: tuple = ()
 ) -> Tuple[float, Array]:
@@ -75,22 +76,22 @@ def solve_ivp(
     t_start, t_end = t_span
 
     def cond_fn(carry):
-        t, y = carry
+        t, y, _ = carry
         return t < t_end
 
     def body_fn(carry):
-        t, y = carry
+        t, y, m = carry
 
         # Adjust final step to hit t_end exactly
         h = jax.lax.max(0.0, jax.lax.min(step_size, t_end - t))
 
-        y_next = method.step(fun, t, y, h, args)
+        y_next = m.step(fun, t, y, h, args)
 
         t_next = t + h
 
-        return (t_next, y_next)
+        return (t_next, y_next, m)
 
-    t_final, y_final = jax.lax.while_loop(cond_fn, body_fn, (t_start, y0))
+    t_final, y_final, _ = jax.lax.while_loop(cond_fn, body_fn, (t_start, y0, method))
 
     return t_final, y_final
 
@@ -99,7 +100,7 @@ def solve_with_history(
     fun: Callable,
     t_span: Tuple[float, float],
     y0: Array,
-    method: AbstractStepper,
+    method: StepperProtocol,
     step_size: float,
     t_eval: Optional[Array] = None,
     args: tuple = (),

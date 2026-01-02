@@ -84,19 +84,22 @@ Currently only [NewtonRaphson][jax_fno.integrate.NewtonRaphson] is provided
 as root-finding algorithm.
 
 Users can extend the root finders by writing their own implementation by
-inheriting from [AbstractRootFinder][jax_fno.integrate.AbstractRootFinder].
+following [RootFinderProtocol][jax_fno.integrate.RootFinderProtocol].
 
 ## Extending the linear solvers
 
 The root-finders often use a linear solver as a subroutine.
 
-The linear solvers currently available are 
-[GMRES][jax_fno.integrate.GMRES], [CG][jax_fno.integrate.CG], 
-[BiCGStab][jax_fno.integrate.BiCGStab] and 
-[Direct][jax_fno.integrate.Direct].
+The linear solvers currently available are:
+
+- [GMRES][jax_fno.integrate.GMRES]
+- [CG][jax_fno.integrate.CG]
+- [BiCGStab][jax_fno.integrate.BiCGStab]
+- [DirectDense][jax_fno.integrate.DirectDense]
+- [Spectral][jax_fno.integrate.Spectral]
 
 Users can extend the linear solvers by writing their own implementation and 
-inheriting from [AbstractLinearSolver][jax_fno.integrate.AbstractLinearSolver].
+inheriting from [LinearSolverProtocol][jax_fno.integrate.LinearSolverProtocol].
 
 ### JAX transformations
 

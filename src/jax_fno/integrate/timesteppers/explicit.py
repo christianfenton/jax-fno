@@ -1,21 +1,18 @@
 """Explicit time-stepping schemes."""
 
-from dataclasses import dataclass
 from typing import Callable
 
+from flax import nnx
 from jax import Array
 
-from .base import AbstractStepper
 
-
-@dataclass(frozen=True)
-class ForwardEuler(AbstractStepper):
+class ForwardEuler(nnx.Module):
     """
     Forward Euler method.
 
     Discretisation:
-    $$ \\frac{\\partial y}{\\partial t} \\rightarrow 
-    \\frac{(y_{n+1} - y_n)}{h} = f(t_n, y_n) $$
+        $$ \\frac{\\partial y}{\\partial t} \\rightarrow
+        \\frac{(y_{n+1} - y_n)}{h} = f(t_n, y_n) $$
     """
 
     def step(
@@ -44,9 +41,12 @@ class ForwardEuler(AbstractStepper):
         return y + h * fun(t, y, *args)
 
 
-@dataclass(frozen=True)
-class RK4(AbstractStepper):
-    """Fourth (4th) order Runge-Kutta method."""
+class RK4(nnx.Module):
+    """
+    Fourth (4th) order Runge-Kutta method.
+
+    Implements: StepperProtocol
+    """
 
     def step(
         self,

@@ -17,13 +17,13 @@ $$ \frac{\partial y}{\partial t} = f(t, y). $$
 
 ::: jax_fno.integrate.BackwardEuler
 
-::: jax_fno.integrate.AbstractStepper
+::: jax_fno.integrate.StepperProtocol
 
 ## Root-finding algorithms
 
 ::: jax_fno.integrate.NewtonRaphson
 
-::: jax_fno.integrate.AbstractRootFinder
+::: jax_fno.integrate.RootFinderProtocol
 
 ## Linear solvers
 
@@ -33,6 +33,8 @@ $$ \frac{\partial y}{\partial t} = f(t, y). $$
 
 ::: jax_fno.integrate.BiCGStab
 
-::: jax_fno.integrate.Direct
+::: jax_fno.integrate.DirectDense
 
-::: jax_fno.integrate.AbstractLinearSolver
+:: jax_fno.integrate.Spectral
+
+::: jax_fno.integrate.LinearSolverProtocol
