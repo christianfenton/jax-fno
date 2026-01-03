@@ -9,6 +9,7 @@ from .timesteppers import (
     ForwardEuler,
     RK4,
     BackwardEuler,
+    IMEX,
 )
 
 # Root-finding algorithms
@@ -39,6 +40,7 @@ __all__ = [
     "ForwardEuler",
     "RK4",
     "BackwardEuler",
+    "IMEX",
     # Root-finding algorithms
     "NewtonRaphson",
     # Linear solvers

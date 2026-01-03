@@ -35,20 +35,20 @@ class BackwardEuler(nnx.Module):
     def _build_linearisation(self, fun, t, h, args):
         """Return (jac_fn, jvp_fn) for the Jacobian J_f = I - h * df/dy."""
 
-        # Case 1: explicit dense Jacobian supplied
         if self.jac is not None:
+            # Dense Jacobian supplied
             def jac_fn(y):
                 return jnp.eye(y.size) - h * self.jac(t + h, y, *args)
             return jac_fn, None
 
-        # Case 2: matrix-free JVP supplied (preferred for large systems)
         if self.jvp is not None:
+            # Matrix-free Jacobian supplied
             def jvp_fn(y, v):
                 return v - h * self.jvp(t + h, y, v, *args)
             return None, jvp_fn
 
-        # Case 3: fall back to automatic differentiation
         def jvp_autodiff(y, v):
+            # Fall back to automatic differentiation
             _, df_v = jax.jvp(lambda y_: fun(t + h, y_, *args), (y,), (v,))
             return v - h * df_v
 

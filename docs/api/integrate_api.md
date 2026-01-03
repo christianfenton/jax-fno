@@ -17,6 +17,8 @@ $$ \frac{\partial y}{\partial t} = f(t, y). $$
 
 ::: jax_fno.integrate.BackwardEuler
 
+::: jax_fno.integrate.IMEX
+
 ::: jax_fno.integrate.StepperProtocol
 
 ## Root-finding algorithms

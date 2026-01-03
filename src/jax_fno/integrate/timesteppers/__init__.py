@@ -3,6 +3,7 @@
 from .protocol import StepperProtocol
 from .explicit import ForwardEuler, RK4
 from .implicit import BackwardEuler
+from .imex import IMEX
 
 __all__ = [
     # Protocol
@@ -14,4 +15,7 @@ __all__ = [
 
     # Implicit methods
     "BackwardEuler",
+
+    # IMEX methods
+    "IMEX",
 ]

@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "jax_fno"
-version = "0.6.1"
+version = "0.6.2"
 description = "JAX implementation of Fourier Neural Operators for solving PDEs"
 authors = ["christianfenton"]
 readme = "README.md"
