@@ -55,14 +55,14 @@ can allow much larger time steps for stiff problems.
 
 ### Extending the time-stepping methods
 
-```python
-from dataclasses import dataclass
-from typing import Callable
-from jax import Array
-from jax_fno.integrate import AbstractStepper, solve_ivp
+To use a custom time-stepping method, implement a step method according to [StepperProtocol][jax_fno.integrate.StepperProtocol] in a class that inherits from `flax.nnx.Module`:
 
-@dataclass(frozen=True)
-class MyMethod(AbstractStepper):
+```python
+from jax import Array
+from flax import nnx
+from jax_fno.integrate import solve_ivp
+
+class MyMethod(nnx.Module):
 
     def step(
         self,
